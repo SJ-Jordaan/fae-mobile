@@ -2,8 +2,9 @@ import React, { useState, useRef } from 'react';
 import ReactFlow, {
   ReactFlowProvider,
   addEdge,
-  removeElements,
   Controls,
+  useNodesState,
+  useEdgesState,
 } from 'react-flow-renderer';
 import {
   AutomatonNodeStyle,
@@ -11,7 +12,7 @@ import {
 } from '../constants/styles';
 import { AutomatonEditorSidebar } from './AutomatonEditorSidebar';
 
-const initialElements = [
+const initialNodes = [
   {
     id: 'S0',
     type: 'default',
@@ -30,13 +31,17 @@ const getId = () => `S${id++}`;
 export const AutomatonEditor = () => {
   const reactFlowWrapper = useRef(null);
   const [reactFlowInstance, setReactFlowInstance] = useState(null);
-  const [elements, setElements] = useState(initialElements);
-  const onConnect = (params) =>
-    setElements((els) => addEdge({ ...params, arrowHeadType: 'arrow' }, els));
-  const onElementsRemove = (elementsToRemove) =>
-    setElements((els) => removeElements(elementsToRemove, els));
+  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  // TODO: Check this
+  // const onConnect = (params) =>
+  //   setNodes((els) => addEdge({ ...params, arrowHeadType: 'arrow' }, els));
+  const onConnect = (connection) =>
+    setEdges((es) =>
+      addEdge({ ...connection, markerEnd: { type: 'arrow' } }, es),
+    );
 
-  const onLoad = (_reactFlowInstance) =>
+  const onInit = (_reactFlowInstance) =>
     setReactFlowInstance(_reactFlowInstance);
 
   const onDragOver = (e) => {
@@ -71,7 +76,7 @@ export const AutomatonEditor = () => {
       style: isAccepting ? AutomatonNodeAcceptingStyle : AutomatonNodeStyle,
     };
 
-    setElements((el) => el.concat(newNode));
+    setNodes((el) => el.concat(newNode));
   };
 
   return (
@@ -86,14 +91,15 @@ export const AutomatonEditor = () => {
       <ReactFlowProvider>
         <div style={{ flex: 1 }} ref={reactFlowWrapper}>
           <ReactFlow
-            elements={elements}
+            nodes={nodes}
+            edges={edges}
             onConnect={onConnect}
-            onElementsRemove={onElementsRemove}
-            onLoad={onLoad}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onInit={onInit}
             onDrop={onDrop}
             onDragOver={onDragOver}
             onDragEnter={onDragEnter}
-            snapToGrid={true}
           >
             <Controls />
           </ReactFlow>
