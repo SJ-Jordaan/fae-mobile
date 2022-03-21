@@ -1,46 +1,135 @@
-# Getting Started with Create React App
+<div id="top"></div>
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+<!-- PROJECT LOGO -->
+<br />
+<div align="center">
+  <a href="public/assets/icons/logo.png">
+    <img src="public/assets/icons/logo.png" alt="Logo" width="80" height="80">
+  </a>
 
-## Available Scripts
+  <h3 align="center">Finite Automaton Editor (FAE)</h3>
 
-In the project directory, you can run:
+  <p align="center">
+    A user-friendly app for building and testing automatons
+</div>
 
-### `npm start`
+<!-- TABLE OF CONTENTS -->
+<details>
+  <summary>Table of Contents</summary>
+  <ol>
+    <li>
+      <a href="#about-the-project">About The Project</a>
+      <ul>
+        <li><a href="#built-with">Built With</a></li>
+      </ul>
+    </li>
+    <li>
+      <a href="#getting-started">Getting Started</a>
+      <ul>
+        <li><a href="#prerequisites">Prerequisites</a></li>
+        <li><a href="#installation">Installation</a></li>
+      </ul>
+    </li>
+    <li><a href="#usage">Usage</a></li>
+    <li><a href="#roadmap">Roadmap</a></li>
+    <li><a href="#contributing">Contributing</a></li>
+    <li><a href="#license">License</a></li>
+    <li><a href="#contact">Contact</a></li>
+    <li><a href="#acknowledgments">Acknowledgments</a></li>
+  </ol>
+</details>
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in the browser.
+<!-- ABOUT THE PROJECT -->
 
-The page will reload if you make edits.\
-You will also see any lint errors in the console.
+## About The Project
 
-### `npm test`
+This project falls under my MSc Computer Science research. It is starting out simple with a user-friendly interface for building and testing automata. Later down the line we are planning on adding automata-based games and more.
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+<p align="right">(<a href="#top">back to top</a>)</p>
 
-### `npm run build`
+### Built With
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+As the project grows and more layers are added to the architecture this section will be updated. For now it is entirely frontend and built entirely with React.
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+- [React.js](https://reactjs.org/)
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+<p align="right">(<a href="#top">back to top</a>)</p>
 
-### `npm run eject`
+<!-- GETTING STARTED -->
 
-**Note: this is a one-way operation. Once you `eject`, you can’t go back!**
+## Getting Started
 
-If you aren’t satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+To get a local copy up and running follow these simple example steps.
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you’re on your own.
+### Prerequisites
 
-You don’t have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn’t feel obligated to use this feature. However we understand that this tool wouldn’t be useful if you couldn’t customize it when you are ready for it.
+The following needs to be installed before you can start working on the project.
 
-## Learn More
+- Git - [Download & Install Git](https://git-scm.com/downloads). OSX and Linux machines typically have this already installed.
+- Node.js - [Download & Install Node.js](https://nodejs.org/en/download/) and the npm package manager. If you encounter any problems, you can also use this [GitHub Gist](https://gist.github.com/isaacs/579814) to install Node.js.
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+### Installation
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+1. Navigate to the location you want this repo to be stored on your pc
+2. Clone the repo
+   ```sh
+   git clone git@github.com:SJ-Jordaan/fae-mobile.git
+   ```
+3. Install NPM packages
+   ```sh
+   npm install
+   ```
+
+<p align="right">(<a href="#top">back to top</a>)</p>
+
+<!-- USAGE EXAMPLES -->
+
+## Usage
+
+This section will need to be completed at a later time.
+
+<p align="right">(<a href="#top">back to top</a>)</p>
+
+<!-- ROADMAP -->
+
+## Roadmap
+
+- [x] Migrate to TypeScript
+- [x] Migrate to React-Flow v10
+- [ ] Fix UI issues with basic editor
+  - [ ] Arrows between the same two nodes
+  - [ ] More visual affordance to creating transitions
+  - [ ] Creating a self-looping transition easier
+- [ ] Add visual simulation for input provided
+
+See the [open issues](https://github.com/SJ-Jordaan/fae-mobile/issues) for a full list of proposed features (and known issues).
+
+<p align="right">(<a href="#top">back to top</a>)</p>
+
+<!-- CONTRIBUTING -->
+
+## Contributing
+
+As of right now, this project is not accepting contributions unless you are working within the UP CS Department. Or are doing an Honours/Masters project under one their researchers
+
+<p align="right">(<a href="#top">back to top</a>)</p>
+
+<!-- LICENSE -->
+
+## License
+
+There is no license to use this project as it is currently for research purposes. There are no rights for the redistribution of this source code.
+
+<p align="right">(<a href="#top">back to top</a>)</p>
+
+<!-- ACKNOWLEDGMENTS -->
+
+## Acknowledgments
+
+These are packages or libraries that the project has found useful.
+
+- [MUI](https://mui.com/)
+- [React Flow](https://reactflow.dev/)
+- [Tim Ruffles mobile-drag-drop](https://github.com/timruffles/mobile-drag-drop)
+
+<p align="right">(<a href="#top">back to top</a>)</p>
