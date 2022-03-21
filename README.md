@@ -3,8 +3,8 @@
 <!-- PROJECT LOGO -->
 <br />
 <div align="center">
-  <a href="public/assets/icons/logo.png">
-    <img src="public/assets/icons/logo.png" alt="Logo" width="80" height="80">
+  <a href="../public/assets/icons/logo.jpg">
+    <img src="./public/assets/icons/logo.jpg" alt="Logo" width="80" height="80">
   </a>
 
   <h3 align="center">Finite Automaton Editor (FAE)</h3>
