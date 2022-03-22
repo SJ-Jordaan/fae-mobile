@@ -178,7 +178,6 @@ export const AutomatonEditor = () => {
       <ReactFlowProvider>
         <div style={{ flex: 1 }} ref={reactFlowWrapper}>
           <ReactFlow
-            className='touchdevice-flow'
             nodes={nodes}
             nodeTypes={nodeTypes}
             edges={edges}

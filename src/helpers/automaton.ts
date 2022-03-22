@@ -34,33 +34,63 @@ export class AutomatonSchematic {
     });
   }
 
-  verifyInputString(input: string, currentState: string): boolean {
+  getStateSchematic(id: string): StateSchematic | null {
     for (const state of this.states) {
-      if (state.id !== currentState) {
+      if (state.id !== id) {
         continue;
       }
 
-      if (input.length === 0 && state.isAccepting) {
-        return true;
-      }
+      return state;
+    }
 
-      if (input.length === 0 && !state.isAccepting) {
-        return false;
-      }
+    return null;
+  }
 
-      for (const transition of state.transitions) {
-        const currentSymbol = input.substring(0, 1);
-        const remainingString = input.substring(1);
-
-        if (transition.symbols.includes(currentSymbol)) {
-          return this.verifyInputString(remainingString, transition.target);
-        }
-
-        return false;
+  getStateTransition(
+    symbol: string,
+    state: StateSchematic,
+  ): TransitionSchematic | null {
+    for (const transition of state.transitions) {
+      if (transition.symbols.includes(symbol)) {
+        return transition;
       }
     }
 
+    return null;
+  }
+
+  verifyInputString(input: string, currentState: string): boolean {
+    const state = this.getStateSchematic(currentState);
+
+    if (!state) {
+      return false;
+    }
+
+    if (this.stateAcceptsInput(input, state)) {
+      return true;
+    }
+
+    if (this.stateRejectsInput(input, state)) {
+      return false;
+    }
+
+    const currentSymbol = input.substring(0, 1);
+    const remainingString = input.substring(1);
+    const transition = this.getStateTransition(currentSymbol, state);
+
+    if (transition !== null) {
+      return this.verifyInputString(remainingString, transition.target);
+    }
+
     return false;
+  }
+
+  stateAcceptsInput(input: string, currentState: StateSchematic): boolean {
+    return input.length === 0 && currentState.isAccepting;
+  }
+
+  stateRejectsInput(input: string, currentState: StateSchematic): boolean {
+    return input.length === 0 && !currentState.isAccepting;
   }
 
   getInitialState(): string {
