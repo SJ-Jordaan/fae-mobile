@@ -13,29 +13,32 @@ import {
   DialogContent,
   DialogContentText,
   DialogTitle,
+  Modal,
   TextField,
   Typography,
 } from '@mui/material';
 import CheckIcon from '@mui/icons-material/Check';
 import CloseIcon from '@mui/icons-material/Close';
 import { BugReport } from '@mui/icons-material';
+import { AutomatonSimulator } from './AutomatonSimulator';
 
 export const BasicSpeedDial = () => {
   const { nodes, edges } = React.useContext(ElementContext);
-  const [open, setOpen] = React.useState(false);
+  const [openVerify, setOpenVerify] = React.useState(false);
   const [verify, setVerify] = React.useState({
     loading: false,
     error: false,
     success: false,
   });
+  const [openSimulate, setOpenSimulate] = React.useState(false);
   const inputRef = React.useRef<HTMLInputElement | null>(null);
 
-  const handleClickOpen = () => {
-    setOpen(true);
+  const handleOpenVerify = () => {
+    setOpenVerify(true);
   };
 
-  const handleClose = () => {
-    setOpen(false);
+  const handleCloseVerify = () => {
+    setOpenVerify(false);
     setVerify({
       loading: false,
       error: false,
@@ -44,31 +47,29 @@ export const BasicSpeedDial = () => {
   };
 
   const handleVerify = () => {
-    setVerify((prevState) => ({
-      ...prevState,
+    setVerify({
       loading: true,
-    }));
+      error: false,
+      success: false,
+    });
 
     if (!inputRef?.current) {
-      setVerify((prevState) => ({
-        ...prevState,
-        loading: true,
-      }));
+      setVerify({
+        loading: false,
+        error: false,
+        success: false,
+      });
 
       return;
     }
 
     const automaton = new AutomatonSchematic(nodes, edges);
-    const isStringAccepted = automaton.verifyInputString(
+    const witness = automaton.verifyInputString(
       inputRef.current.value,
       automaton.getInitialState(),
     );
 
-    console.log(inputRef.current.value);
-
-    console.log(isStringAccepted);
-
-    if (!isStringAccepted) {
+    if (!witness.isAccepting) {
       setVerify({
         loading: false,
         error: true,
@@ -85,6 +86,14 @@ export const BasicSpeedDial = () => {
     });
   };
 
+  const handleSimulate = () => {
+    setOpenSimulate(true);
+  };
+
+  const handleCloseSimulate = () => {
+    setOpenSimulate(false);
+  };
+
   return (
     <Box>
       <SpeedDial
@@ -97,10 +106,10 @@ export const BasicSpeedDial = () => {
           icon={<BugReport />}
           tooltipTitle={'Test'}
           tooltipOpen
-          onClick={handleClickOpen}
+          onClick={handleOpenVerify}
         />
       </SpeedDial>
-      <Dialog open={open} onClose={handleClose}>
+      <Dialog open={openVerify} onClose={handleCloseVerify}>
         <DialogTitle>Enter input string</DialogTitle>
         <DialogContent>
           <DialogContentText>
@@ -142,10 +151,19 @@ export const BasicSpeedDial = () => {
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleClose}>Close</Button>
+          <Button onClick={handleCloseVerify}>Close</Button>
           <Button onClick={handleVerify}>Verify</Button>
+          <Button onClick={handleSimulate}>Simulate</Button>
         </DialogActions>
       </Dialog>
+      <Modal open={openSimulate}>
+        <Box>
+          <AutomatonSimulator
+            onClick={handleCloseSimulate}
+            inputString={inputRef.current?.value || ''}
+          />
+        </Box>
+      </Modal>
     </Box>
   );
 };

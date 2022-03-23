@@ -3,7 +3,7 @@ import React from 'react';
 import { Handle, NodeProps, Position } from 'react-flow-renderer';
 
 const topHandleStyle = {
-  width: '5px',
+  width: '50px',
   height: '5px',
   borderRadius: '3px',
   backgroundColor: 'transparent',
