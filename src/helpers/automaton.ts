@@ -1,5 +1,5 @@
 import { Edge, Node } from 'react-flow-renderer';
-import { StateSchematic, TransitionSchematic } from './types';
+import { StateSchematic, TransitionSchematic, Witness } from './types';
 
 export class AutomatonSchematic {
   private states: StateSchematic[];
@@ -26,6 +26,7 @@ export class AutomatonSchematic {
           schematicNode.transitions.push({
             target: edge.target,
             symbols: edge.label?.toString()?.split(',') || [],
+            id: edge.id
           });
         }
       }
@@ -46,43 +47,94 @@ export class AutomatonSchematic {
     return null;
   }
 
-  getStateTransition(
+  getStateTransitions(
     symbol: string,
-    state: StateSchematic,
-  ): TransitionSchematic | null {
+    state: StateSchematic
+  ): TransitionSchematic[] {
+    const transitions: TransitionSchematic[] = [];
+
     for (const transition of state.transitions) {
       if (transition.symbols.includes(symbol)) {
-        return transition;
+        transitions.push(transition);
       }
     }
 
-    return null;
+    return transitions;
   }
 
-  verifyInputString(input: string, currentState: string): boolean {
+  verifyInputString(input: string, currentState: string): Witness {
     const state = this.getStateSchematic(currentState);
 
     if (!state) {
-      return false;
+      return {
+        isAccepting: false,
+        path: [],
+      };
     }
 
     if (this.stateAcceptsInput(input, state)) {
-      return true;
+      return {
+        isAccepting: true,
+        path: [
+          {
+            state: currentState,
+            symbol: input,
+          },
+        ],
+      };
     }
 
     if (this.stateRejectsInput(input, state)) {
-      return false;
+      return {
+        isAccepting: false,
+        path: [
+          {
+            state: currentState,
+            symbol: input,
+          },
+        ],
+      };
     }
 
     const currentSymbol = input.substring(0, 1);
     const remainingString = input.substring(1);
-    const transition = this.getStateTransition(currentSymbol, state);
+    const transitions = this.getStateTransitions(currentSymbol, state);
 
-    if (transition !== null) {
-      return this.verifyInputString(remainingString, transition.target);
+    for (let i = 0; i < transitions.length; i++) {
+      const transition = transitions[i];
+
+      if (!!transition) {
+        const witness = this.verifyInputString(
+          remainingString,
+          transition.target
+        );
+
+        if (witness.isAccepting || i === transitions.length - 1) {
+          return {
+            isAccepting: witness.isAccepting,
+            path: [
+              {
+                state: currentState,
+                symbol: input.slice(0, 1),
+                edge: transition.id
+              },
+              ...witness.path,
+            ],
+          };
+        }
+
+      }
     }
 
-    return false;
+    return {
+      isAccepting: false,
+      path: [
+        {
+          state: currentState,
+          symbol: currentSymbol,
+        },
+      ],
+    };
   }
 
   stateAcceptsInput(input: string, currentState: StateSchematic): boolean {

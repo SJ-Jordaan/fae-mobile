@@ -1,5 +1,5 @@
 import { CloseOutlined } from '@mui/icons-material';
-import { Box, Color } from '@mui/material';
+import { Box } from '@mui/material';
 import React, { useContext, useEffect, useState } from 'react';
 import ReactFlow, {
   ReactFlowInstance,
@@ -16,7 +16,8 @@ import SkipPreviousIcon from '@mui/icons-material/SkipPrevious';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import PauseIcon from '@mui/icons-material/Pause';
 import { AutomatonSchematic } from '../helpers/automaton';
-import { StateSchematic } from '../helpers/types';
+import { Witness } from '../helpers/types';
+import { generateInitialElements } from '../helpers/utils';
 
 const nodeTypes = {
   initial: InitialState,
@@ -33,24 +34,45 @@ type Props = {
 };
 
 type CurrentAnimationState = {
-  state: string;
-  input: string;
   automaton: AutomatonSchematic;
+  witness: Witness;
+  index: number;
   pastStates: string[];
   pastSymbols: string[];
 };
 
 export const AutomatonSimulator = (props: Props) => {
   const { nodes, edges } = useContext(ElementContext);
-  const [animatedNodes, setAnimatedNodes, onNodesChange] = useNodesState(nodes);
-  const [animatedEdges, setAnimatedEdges, onEdgesChange] = useEdgesState(edges);
+  const { initialEdges, initialNodes } = generateInitialElements();
+  const [animatedNodes, setAnimatedNodes, onNodesChange] =
+    useNodesState(initialNodes);
+  const [animatedEdges, setAnimatedEdges, onEdgesChange] =
+    useEdgesState(initialEdges);
 
   const [current, setCurrent] = useState<CurrentAnimationState | null>(null);
 
-  const colorNode = (id: string, color: string) => {
+  const colorNode = (index: number, reset?: boolean) => {
+    if (!current) return;
+
+    const { witness, automaton } = current;
+    const symbol = witness.path[index].symbol;
+    const state = witness.path[index].state;
+    const stateSchematic = automaton.getStateSchematic(state);
+    if (!stateSchematic) return;
+
+    let color = 'lightblue';
+
+    if (index === witness.path.length - 1) {
+      color = automaton.stateAcceptsInput(symbol, stateSchematic)
+        ? 'green'
+        : 'red';
+    }
+
+    color = reset ? 'transparent' : color;
+
     setAnimatedNodes((nds) =>
       nds.map((node) => {
-        if (node.id === id) {
+        if (node.id === state) {
           node.style = {
             ...node.style,
             backgroundColor: color,
@@ -59,28 +81,26 @@ export const AutomatonSimulator = (props: Props) => {
         }
 
         return node;
-      }),
+      })
     );
   };
 
-  const colorNodeTermination = (
-    input: string,
-    state: StateSchematic,
-  ): boolean => {
-    if (!current) return false;
+  const colorEdge = (index: number, reset?: boolean) => {
+    if (!current) return;
 
-    if (current.automaton.stateAcceptsInput(input, state)) {
-      colorNode(state.id, 'green');
-      return true;
-    }
+    const { witness } = current;
+    const id = witness.path[index].edge;
+    if (!id) return;
 
-    if (current.automaton.stateRejectsInput(input, state)) {
-      colorNode(state.id, 'red');
-      return true;
-    }
+    setAnimatedEdges((eds) =>
+      eds.map((edge) => {
+        if (edge.id === id) {
+          edge.animated = !reset;
+        }
 
-    colorNode(state.id, 'lightblue');
-    return false;
+        return edge;
+      })
+    );
   };
 
   useEffect(() => {
@@ -88,16 +108,36 @@ export const AutomatonSimulator = (props: Props) => {
       return;
     }
 
-    const automaton = new AutomatonSchematic(nodes, edges);
-    const state = automaton.getInitialState();
+    const updatedNodes = nodes.map((node) => ({
+      ...node,
+      id: node.id + '-sim',
+    }));
+
+    const updatedEdges = edges.map((edge) => ({
+      ...edge,
+      id: edge.id + '-sim',
+      source: edge.source + '-sim',
+      target: edge.target + '-sim'
+    }));
+
+    setAnimatedEdges(updatedEdges);
+    setAnimatedNodes(updatedNodes);
+
+    const automaton = new AutomatonSchematic(updatedNodes, updatedEdges);
+    const initialState = automaton.getInitialState();
+    const witness = automaton.verifyInputString(
+      props.inputString,
+      initialState
+    );
 
     setCurrent({
       automaton,
-      state,
-      input: props.inputString,
+      index: 0,
+      witness,
       pastStates: [],
       pastSymbols: [],
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const [play, setPlay] = useState(false);
@@ -107,18 +147,9 @@ export const AutomatonSimulator = (props: Props) => {
 
     setPlay(true);
 
-    const state = current.automaton.getStateSchematic(current.state);
+    const { index } = current;
 
-    if (!state) return;
-
-    const input = current.input;
-    const terminate = colorNodeTermination(input, state);
-
-    if (terminate) {
-      return;
-    }
-
-    // Do the animation
+    colorNode(index);
   };
 
   const handlePause = () => {
@@ -128,46 +159,50 @@ export const AutomatonSimulator = (props: Props) => {
   const handleNext = () => {
     if (!current || !play) return;
 
-    const automaton = current.automaton;
-    const input = current.input;
-    const state = automaton.getStateSchematic(current.state);
+    const { witness, index } = current;
+    const state = witness.path[index].state;
+    const symbol = witness.path[index].symbol;
 
-    if (!state) return;
-
-    const terminate = colorNodeTermination(input, state);
-
-    if (terminate) {
+    if (index === witness.path.length - 1) {
       return;
     }
 
-    const currentSymbol = input.substring(0, 1);
-    const remainingString = input.substring(1);
-    const pastStates = [...current.pastStates, state.id];
-    const pastSymbols = [...current.pastSymbols, currentSymbol];
+    colorNode(index + 1);
+    colorEdge(index);
+    setCurrent({
+      index: index + 1,
+      automaton: current.automaton,
+      witness: witness,
+      pastStates: [...current.pastStates, state],
+      pastSymbols: [...current.pastSymbols, symbol],
+    });
+  };
 
-    const transition = current.automaton.getStateTransition(
-      currentSymbol,
-      state,
-    );
+  const handlePrevious = () => {
+    if (!current || !play) return;
 
-    if (transition !== null) {
-      const newState = automaton.getStateSchematic(transition.target);
-      if (!newState) return;
+    const { witness, index, pastStates, pastSymbols, automaton } = current;
 
-      colorNodeTermination(remainingString, newState);
-
-      setCurrent({
-        automaton,
-        input: remainingString,
-        state: newState.id,
-        pastStates,
-        pastSymbols,
-      });
-
+    if (index === 0) {
       return;
     }
 
-    colorNodeTermination(remainingString, state);
+    const poppedPastStates = pastStates;
+    poppedPastStates.pop();
+
+    const poppedPastSymbols = pastSymbols;
+    poppedPastSymbols.pop();
+
+    colorNode(index, true);
+    colorNode(index - 1);
+    colorEdge(index - 1, true);
+    setCurrent({
+      index: index - 1,
+      automaton: automaton,
+      witness: witness,
+      pastStates: poppedPastStates,
+      pastSymbols: poppedPastSymbols,
+    });
   };
 
   const onInit = (_reactFlowInstance: ReactFlowInstance) => {
@@ -184,8 +219,7 @@ export const AutomatonSimulator = (props: Props) => {
         flexDirection: 'column',
         justifyContent: 'center',
         alignItems: 'center',
-      }}
-    >
+      }}>
       <ReactFlowProvider>
         <ReactFlow
           nodes={animatedNodes}
@@ -200,13 +234,11 @@ export const AutomatonSimulator = (props: Props) => {
           elementsSelectable={false}
           panOnDrag={false}
           panOnScroll={false}
-          attributionPosition={'top-left'}
-        ></ReactFlow>
+          attributionPosition={'top-left'}></ReactFlow>
       </ReactFlowProvider>
       <Box
         sx={{ position: 'absolute', top: 16, right: 16, zIndex: 10 }}
-        onClick={props.onClick}
-      >
+        onClick={props.onClick}>
         <CloseOutlined fontSize='large' />
       </Box>
       <Box
@@ -220,9 +252,12 @@ export const AutomatonSimulator = (props: Props) => {
           display: 'flex',
           justifyContent: 'center',
           alignItems: 'center',
-        }}
-      >
-        <SkipPreviousIcon fontSize='large' sx={{ margin: '0 16px' }} />
+        }}>
+        <SkipPreviousIcon
+          fontSize='large'
+          sx={{ margin: '0 16px' }}
+          onClick={handlePrevious}
+        />
         {play ? (
           <PauseIcon
             fontSize='large'

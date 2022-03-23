@@ -64,12 +64,12 @@ export const BasicSpeedDial = () => {
     }
 
     const automaton = new AutomatonSchematic(nodes, edges);
-    const isStringAccepted = automaton.verifyInputString(
+    const witness = automaton.verifyInputString(
       inputRef.current.value,
       automaton.getInitialState(),
     );
 
-    if (!isStringAccepted) {
+    if (!witness.isAccepting) {
       setVerify({
         loading: false,
         error: true,
