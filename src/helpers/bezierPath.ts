@@ -7,6 +7,7 @@ export interface GetBezierPathParams {
   targetX: number;
   targetY: number;
   targetPosition?: Position;
+  arch: boolean;
   curvature?: number;
 }
 
@@ -17,6 +18,7 @@ interface GetControlWithCurvatureParams {
   x2: number;
   y2: number;
   c: number;
+  offset: number;
 }
 
 type MirrorProps = {
@@ -54,23 +56,24 @@ function getControlWithCurvature({
   x2,
   y2,
   c,
+  offset,
 }: GetControlWithCurvatureParams): [number, number] {
   let ctX: number, ctY: number;
   switch (pos) {
     case Position.Left:
       ctX = x1 - calculateControlOffset(x1 - x2, c);
-      ctY = y1 + 30;
+      ctY = y1 + offset;
       break;
     case Position.Right:
       ctX = x1 + calculateControlOffset(x2 - x1, c);
-      ctY = y1 - 30;
+      ctY = y1 - offset;
       break;
     case Position.Top:
-      ctX = x1 + 30;
+      ctX = x1 + offset;
       ctY = y1 - calculateControlOffset(y1 - y2, c);
       break;
     case Position.Bottom:
-      ctX = x1 - 30;
+      ctX = x1 - offset;
       ctY = y1 + calculateControlOffset(y2 - y1, c);
       break;
   }
@@ -84,8 +87,11 @@ export function getBezierPath({
   targetX,
   targetY,
   targetPosition = Position.Top,
+  arch,
   curvature = 0.5,
 }: GetBezierPathParams): string {
+  const offset = arch ? 40 : 0;
+
   const [sourceControlX, sourceControlY] = getControlWithCurvature({
     pos: sourcePosition,
     x1: sourceX,
@@ -93,15 +99,7 @@ export function getBezierPath({
     x2: targetX,
     y2: targetY,
     c: curvature,
-  });
-
-  const [flippedX, flippedY] = mirrorImage({
-    x1: sourceX,
-    y1: sourceY,
-    x2: targetX,
-    y2: targetY,
-    oX: sourceControlX,
-    oY: sourceControlY,
+    offset,
   });
 
   const [targetControlX, targetControlY] = getControlWithCurvature({
@@ -111,7 +109,21 @@ export function getBezierPath({
     x2: sourceX,
     y2: sourceY,
     c: curvature,
+    offset,
   });
 
-  return `M${sourceX},${sourceY} C${flippedX},${flippedY} ${targetControlX},${targetControlY} ${targetX},${targetY}`;
+  if (arch) {
+    const [flippedX, flippedY] = mirrorImage({
+      x1: sourceX,
+      y1: sourceY,
+      x2: targetX,
+      y2: targetY,
+      oX: sourceControlX,
+      oY: sourceControlY,
+    });
+
+    return `M${sourceX},${sourceY} C${flippedX},${flippedY} ${targetControlX},${targetControlY} ${targetX},${targetY}`;
+  }
+
+  return `M${sourceX},${sourceY} C${sourceControlX},${sourceControlY} ${targetControlX},${targetControlY} ${targetX},${targetY}`;
 }

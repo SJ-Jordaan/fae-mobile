@@ -1,7 +1,7 @@
 import React, { useContext, useEffect, useState } from 'react';
 
 import { CloseOutlined } from '@mui/icons-material';
-import { Box } from '@mui/material';
+import { Box, Paper, Typography } from '@mui/material';
 import SkipNextIcon from '@mui/icons-material/SkipNext';
 import SkipPreviousIcon from '@mui/icons-material/SkipPrevious';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
@@ -23,6 +23,7 @@ import { ElementContext } from './AutomatonEditor';
 import { AutomatonState } from './AutomatonState';
 import FloatingEdge from './FloatingEdge';
 import { InitialState } from './InitialState';
+import { useInterval } from '../hooks';
 
 const nodeTypes = {
   initial: InitialState,
@@ -55,6 +56,8 @@ export const AutomatonSimulator = (props: Props) => {
     useEdgesState(initialEdges);
 
   const [current, setCurrent] = useState<CurrentAnimationState | null>(null);
+  const [intervalId, setIntervalId] = useState(0);
+  const [play, setPlay] = useState(false);
 
   const colorNode = (index: number, reset?: boolean) => {
     if (!current) return;
@@ -81,12 +84,12 @@ export const AutomatonSimulator = (props: Props) => {
           node.style = {
             ...node.style,
             backgroundColor: color,
-            transition: 'all .5s ease',
+            transition: 'all .7s ease',
           };
         }
 
         return node;
-      })
+      }),
     );
   };
 
@@ -104,7 +107,7 @@ export const AutomatonSimulator = (props: Props) => {
         }
 
         return edge;
-      })
+      }),
     );
   };
 
@@ -132,7 +135,7 @@ export const AutomatonSimulator = (props: Props) => {
     const initialState = automaton.getInitialState();
     const witness = automaton.verifyInputString(
       props.inputString,
-      initialState
+      initialState,
     );
 
     setCurrent({
@@ -144,8 +147,6 @@ export const AutomatonSimulator = (props: Props) => {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const [play, setPlay] = useState(false);
 
   const handlePlay = () => {
     if (!current) return;
@@ -159,32 +160,42 @@ export const AutomatonSimulator = (props: Props) => {
 
   const handlePause = () => {
     setPlay(false);
+    window.clearInterval(intervalId);
+    setIntervalId(0);
   };
 
   const handleNext = () => {
-    if (!current || !play) return;
+    if (!current) return;
 
     const { witness, index } = current;
     const state = witness.path[index].state;
     const symbol = witness.path[index].symbol;
 
     if (index === witness.path.length - 1) {
+      setPlay(false);
+      if (intervalRef.current) {
+        window.clearInterval(intervalRef.current);
+      }
       return;
     }
 
+    colorNode(index, true);
+    if (index > 0) colorEdge(index - 1, true);
+
     colorNode(index + 1);
     colorEdge(index);
+
     setCurrent({
       index: index + 1,
       automaton: current.automaton,
       witness: witness,
-      pastStates: [...current.pastStates, state],
+      pastStates: [...current.pastStates, state.split('-')[0]],
       pastSymbols: [...current.pastSymbols, symbol],
     });
   };
 
   const handlePrevious = () => {
-    if (!current || !play) return;
+    if (!current) return;
 
     const { witness, index, pastStates, pastSymbols, automaton } = current;
 
@@ -201,6 +212,7 @@ export const AutomatonSimulator = (props: Props) => {
     colorNode(index, true);
     colorNode(index - 1);
     colorEdge(index - 1, true);
+    if (index > 1) colorEdge(index - 2);
     setCurrent({
       index: index - 1,
       automaton: automaton,
@@ -210,8 +222,31 @@ export const AutomatonSimulator = (props: Props) => {
     });
   };
 
+  const intervalRef = useInterval(handleNext, play ? 1000 : null);
+
   const onInit = (_reactFlowInstance: ReactFlowInstance) => {
     _reactFlowInstance.fitView();
+  };
+
+  const getHighlightedInput = () => {
+    if (!current) return;
+
+    const input = [];
+    for (let i = 0; i < props.inputString.length; i++) {
+      const symbol = props.inputString[i];
+
+      if (i === current.index - 1) {
+        input.push(
+          <Box fontWeight='fontWeightMedium' fontSize={'22px'} display='inline'>
+            {symbol}
+          </Box>,
+        );
+        continue;
+      }
+      input.push(symbol);
+    }
+
+    return input;
   };
 
   return (
@@ -224,7 +259,8 @@ export const AutomatonSimulator = (props: Props) => {
         flexDirection: 'column',
         justifyContent: 'center',
         alignItems: 'center',
-      }}>
+      }}
+    >
       <ReactFlowProvider>
         <ReactFlow
           nodes={animatedNodes}
@@ -239,48 +275,83 @@ export const AutomatonSimulator = (props: Props) => {
           elementsSelectable={false}
           panOnDrag={false}
           panOnScroll={false}
-          attributionPosition={'top-left'}></ReactFlow>
+          attributionPosition={'top-left'}
+        ></ReactFlow>
       </ReactFlowProvider>
       <Box
         sx={{ position: 'absolute', top: 16, right: 16, zIndex: 10 }}
-        onClick={props.onClick}>
+        onClick={props.onClick}
+      >
         <CloseOutlined fontSize='large' />
       </Box>
       <Box
         sx={{
-          width: 'fit-content',
-          height: '10%',
-          minHeight: '48px',
-          border: '2px solid black',
-          borderRadius: '5px 5px 0 0',
-          borderBottom: 0,
           display: 'flex',
+          flexDirection: 'row',
+          width: '100%',
+          borderTop: '1px solid black',
+          borderRadius: '5px 5px 0 0',
           justifyContent: 'center',
           alignItems: 'center',
-        }}>
-        <SkipPreviousIcon
-          fontSize='large'
-          sx={{ margin: '0 16px' }}
-          onClick={handlePrevious}
-        />
-        {play ? (
-          <PauseIcon
+          boxSizing: 'border-box',
+        }}
+      >
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            flex: 1,
+            height: '100%',
+            padding: '0 8px',
+            boxSizing: 'border-box',
+          }}
+        >
+          <Box
+            sx={{
+              display: 'flex',
+              flexDirection: 'column',
+              boxSizing: 'border-box',
+            }}
+          >
+            <Typography fontWeight={'bold'} fontSize={'22px'}>
+              Input string
+            </Typography>
+            <Typography fontSize={'18px'}>{getHighlightedInput()}</Typography>
+          </Box>
+        </Box>
+        <Box
+          sx={{
+            width: 'fit-content',
+            height: '10%',
+            minHeight: '48px',
+            display: 'flex',
+            alignItems: 'center',
+          }}
+        >
+          <SkipPreviousIcon
             fontSize='large'
             sx={{ margin: '0 16px' }}
-            onClick={handlePause}
+            onClick={handlePrevious}
           />
-        ) : (
-          <PlayArrowIcon
+          {play ? (
+            <PauseIcon
+              fontSize='large'
+              sx={{ margin: '0 16px' }}
+              onClick={handlePause}
+            />
+          ) : (
+            <PlayArrowIcon
+              fontSize='large'
+              sx={{ margin: '0 16px' }}
+              onClick={handlePlay}
+            />
+          )}
+          <SkipNextIcon
             fontSize='large'
             sx={{ margin: '0 16px' }}
-            onClick={handlePlay}
+            onClick={handleNext}
           />
-        )}
-        <SkipNextIcon
-          fontSize='large'
-          sx={{ margin: '0 16px' }}
-          onClick={handleNext}
-        />
+        </Box>
       </Box>
     </Box>
   );

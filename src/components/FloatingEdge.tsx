@@ -4,7 +4,6 @@ import {
   EdgeProps,
   useStore,
   ReactFlowState,
-  EdgeText,
   getEdgeCenter,
 } from 'react-flow-renderer';
 
@@ -30,7 +29,7 @@ const FloatingEdge: FC<EditableFloatingEdgeProps> = ({
   const [selected, setSelected] = React.useState(false);
   const inputRef = React.useRef<HTMLInputElement | null>(null);
 
-  const handleClick = (event: React.MouseEvent<SVGTextElement>, id: string) => {
+  const handleClick = (event: React.MouseEvent<SVGTextElement>) => {
     event.stopPropagation();
     setSelected(true);
   };
@@ -50,11 +49,11 @@ const FloatingEdge: FC<EditableFloatingEdgeProps> = ({
 
   const sourceNode = useMemo(
     () => nodeInternals.get(source),
-    [source, nodeInternals]
+    [source, nodeInternals],
   );
   const targetNode = useMemo(
     () => nodeInternals.get(target),
-    [target, nodeInternals]
+    [target, nodeInternals],
   );
 
   if (!sourceNode || !targetNode) {
@@ -63,11 +62,11 @@ const FloatingEdge: FC<EditableFloatingEdgeProps> = ({
 
   const { sx, sy, tx, ty, sourcePos, targetPos } = getEdgeParams(
     sourceNode,
-    targetNode
+    targetNode,
   );
   // These values are all currently hard-coded for the size 50px
   // A more dynamic approach will be better in future
-  
+
   const d =
     sourceNode.id !== targetNode.id
       ? getBezierPath({
@@ -77,12 +76,13 @@ const FloatingEdge: FC<EditableFloatingEdgeProps> = ({
           targetPosition: targetPos,
           targetX: tx,
           targetY: ty,
+          arch: data.arch,
         })
       : calcSelfLoop(
           sourceNode.position.x + 50,
           sourceNode.position.y + 25,
           targetNode.position.x + 25,
-          targetNode.position.y
+          targetNode.position.y,
         );
 
   const [edgeCenterX, edgeCenterY] =
@@ -110,19 +110,23 @@ const FloatingEdge: FC<EditableFloatingEdgeProps> = ({
         markerEnd={markerEnd}
       />
       {!selected ? (
-        <EdgeText
-          x={edgeCenterX}
-          y={edgeCenterY}
-          label={label}
-          labelStyle={{ fontSize: '14px' }}
-          onClick={(e: React.MouseEvent<SVGTextElement>) => handleClick(e, id)}
-        />
+        <text className='react-flow__edge-textwrapper' onClick={handleClick}>
+          <textPath
+            href={`#${id}`}
+            style={{ fontSize: '16px' }}
+            startOffset='50%'
+            textAnchor='middle'
+          >
+            {label}
+          </textPath>
+        </text>
       ) : (
         <foreignObject
           x={edgeCenterX - 50 / 2}
           y={edgeCenterY - 30 / 2}
           height={30}
-          width={100}>
+          width={100}
+        >
           <TextField
             inputRef={inputRef}
             autoFocus
@@ -131,7 +135,7 @@ const FloatingEdge: FC<EditableFloatingEdgeProps> = ({
             variant='standard'
             defaultValue={label}
             onBlur={handleBlur}
-            style={{backgroundColor: 'transparent'}}
+            style={{ backgroundColor: 'transparent' }}
           />
         </foreignObject>
       )}

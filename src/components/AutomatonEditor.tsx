@@ -12,7 +12,6 @@ import ReactFlow, {
   NodeChange,
   applyNodeChanges,
 } from 'react-flow-renderer';
-import { Map } from 'typescript';
 import { generateInitialElements } from '../helpers';
 import { AutomatonEditorSidebar } from './AutomatonEditorSidebar';
 import { AutomatonState } from './AutomatonState';
@@ -44,7 +43,9 @@ export const AutomatonEditor = () => {
     React.useState<ReactFlowInstance | null>(null);
   const [nodes, setNodes] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
-  const [edgePairs, setEdgePairs] = React.useState(new Map())
+  const [edgePairs, setEdgePairs] = React.useState<Map<string, string[]>>(
+    new Map(),
+  );
 
   const onNodesChange = React.useCallback((changes) => {
     const finalChanges: NodeChange[] = changes;
@@ -88,46 +89,113 @@ export const AutomatonEditor = () => {
         }
 
         return edge;
-      })
+      }),
     );
   };
 
   const onConnect = React.useCallback((connection: Connection) => {
-    const newEdgePairs = edgePairs;
-    
-    if (edgePairs.has(`${connection.target}${connection.source}`)) {
+    if (!connection?.target || !connection?.source) return;
 
+    const defaultProperties = {
+      type: 'floating',
+      data: { onLabelChange },
+      label: 'e',
+      markerEnd: { type: MarkerType.ArrowClosed },
+    };
+
+    const newEdgePairs = edgePairs;
+
+    const edgeAlreadyExists = newEdgePairs
+      .get(connection.source)
+      ?.includes(connection.target);
+
+    if (edgeAlreadyExists) {
+      return;
     }
 
-    if (connection.source === connection.target) {
+    const mirrorEdgeExists = newEdgePairs
+      .get(connection.target)
+      ?.includes(connection.source);
+
+    if (mirrorEdgeExists) {
+      // Update the existing edge to avoid new edge
+      setEdges((es) =>
+        es.map((e) => {
+          if (
+            e.source === connection.target &&
+            e.target === connection.source
+          ) {
+            return {
+              ...e,
+              data: { ...e.data, arch: true },
+            };
+          }
+          return e;
+        }),
+      );
+
+      // Make new edge avoid existing edge
       setEdges((es) =>
         addEdge(
           {
             ...connection,
-            type: 'floating',
-            data: { onLabelChange },
-            label: 'edit me',
-            markerEnd: { type: MarkerType.ArrowClosed },
-            targetHandle: 'left',
+            ...defaultProperties,
+            data: { ...defaultProperties.data, arch: true },
           },
-          es
-        )
+          es,
+        ),
       );
+
+      const existingTargets = newEdgePairs.get(connection.source) ?? [];
+      newEdgePairs.set(connection.source, [
+        ...existingTargets,
+        connection.target,
+      ]);
+      setEdgePairs(newEdgePairs);
 
       return;
     }
+
+    const edgeIsSelfLooping = connection.source === connection.target;
+
+    if (edgeIsSelfLooping) {
+      setEdges((es) =>
+        addEdge(
+          {
+            ...connection,
+            ...defaultProperties,
+            targetHandle: 'left',
+          },
+          es,
+        ),
+      );
+
+      const existingTargets = newEdgePairs.get(connection.source) ?? [];
+      newEdgePairs.set(connection.source, [
+        ...existingTargets,
+        connection.target,
+      ]);
+      setEdgePairs(newEdgePairs);
+
+      return;
+    }
+
     setEdges((es) =>
       addEdge(
         {
           ...connection,
-          type: 'floating',
-          data: { onLabelChange },
-          label: 'edit me',
-          markerEnd: { type: MarkerType.ArrowClosed },
+          ...defaultProperties,
         },
-        es
-      )
+        es,
+      ),
     );
+
+    const existingTargets = newEdgePairs.get(connection.source) ?? [];
+    newEdgePairs.set(connection.source, [
+      ...existingTargets,
+      connection.target,
+    ]);
+    setEdgePairs(newEdgePairs);
   }, []);
 
   const onInit = (_reactFlowInstance: ReactFlowInstance) =>
@@ -152,7 +220,7 @@ export const AutomatonEditor = () => {
     }
 
     const { type, isAccepting } = JSON.parse(
-      e.dataTransfer.getData('application/reactflow')
+      e.dataTransfer.getData('application/reactflow'),
     );
 
     const position = reactFlowInstance.project({
@@ -181,7 +249,8 @@ export const AutomatonEditor = () => {
         display: 'flex',
         height: '100vh',
         width: '100vw',
-      }}>
+      }}
+    >
       <ReactFlowProvider>
         <div style={{ flex: 1 }} ref={reactFlowWrapper}>
           <ReactFlow
@@ -195,7 +264,8 @@ export const AutomatonEditor = () => {
             onInit={onInit}
             onDrop={onDrop}
             onDragOver={onDragOver}
-            onDragEnter={onDragEnter}>
+            onDragEnter={onDragEnter}
+          >
             <Controls />
           </ReactFlow>
         </div>
