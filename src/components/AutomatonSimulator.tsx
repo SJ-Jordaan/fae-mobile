@@ -1,23 +1,28 @@
+import React, { useContext, useEffect, useState } from 'react';
+
 import { CloseOutlined } from '@mui/icons-material';
 import { Box } from '@mui/material';
-import React, { useContext, useEffect, useState } from 'react';
+import SkipNextIcon from '@mui/icons-material/SkipNext';
+import SkipPreviousIcon from '@mui/icons-material/SkipPrevious';
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import PauseIcon from '@mui/icons-material/Pause';
+
 import ReactFlow, {
   ReactFlowInstance,
   ReactFlowProvider,
   useEdgesState,
   useNodesState,
 } from 'react-flow-renderer';
+
+import {
+  AutomatonSchematic,
+  Witness,
+  generateInitialElements,
+} from '../helpers';
 import { ElementContext } from './AutomatonEditor';
 import { AutomatonState } from './AutomatonState';
 import FloatingEdge from './FloatingEdge';
 import { InitialState } from './InitialState';
-import SkipNextIcon from '@mui/icons-material/SkipNext';
-import SkipPreviousIcon from '@mui/icons-material/SkipPrevious';
-import PlayArrowIcon from '@mui/icons-material/PlayArrow';
-import PauseIcon from '@mui/icons-material/Pause';
-import { AutomatonSchematic } from '../helpers/automaton';
-import { Witness } from '../helpers/types';
-import { generateInitialElements } from '../helpers/utils';
 
 const nodeTypes = {
   initial: InitialState,
@@ -117,7 +122,7 @@ export const AutomatonSimulator = (props: Props) => {
       ...edge,
       id: edge.id + '-sim',
       source: edge.source + '-sim',
-      target: edge.target + '-sim'
+      target: edge.target + '-sim',
     }));
 
     setAnimatedEdges(updatedEdges);

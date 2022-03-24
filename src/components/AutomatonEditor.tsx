@@ -12,7 +12,8 @@ import ReactFlow, {
   NodeChange,
   applyNodeChanges,
 } from 'react-flow-renderer';
-import { generateInitialElements } from '../helpers/utils';
+import { Map } from 'typescript';
+import { generateInitialElements } from '../helpers';
 import { AutomatonEditorSidebar } from './AutomatonEditorSidebar';
 import { AutomatonState } from './AutomatonState';
 import FloatingEdge from './FloatingEdge';
@@ -43,6 +44,7 @@ export const AutomatonEditor = () => {
     React.useState<ReactFlowInstance | null>(null);
   const [nodes, setNodes] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+  const [edgePairs, setEdgePairs] = React.useState(new Map())
 
   const onNodesChange = React.useCallback((changes) => {
     const finalChanges: NodeChange[] = changes;
@@ -86,11 +88,17 @@ export const AutomatonEditor = () => {
         }
 
         return edge;
-      }),
+      })
     );
   };
 
   const onConnect = React.useCallback((connection: Connection) => {
+    const newEdgePairs = edgePairs;
+    
+    if (edgePairs.has(`${connection.target}${connection.source}`)) {
+
+    }
+
     if (connection.source === connection.target) {
       setEdges((es) =>
         addEdge(
@@ -102,8 +110,8 @@ export const AutomatonEditor = () => {
             markerEnd: { type: MarkerType.ArrowClosed },
             targetHandle: 'left',
           },
-          es,
-        ),
+          es
+        )
       );
 
       return;
@@ -117,8 +125,8 @@ export const AutomatonEditor = () => {
           label: 'edit me',
           markerEnd: { type: MarkerType.ArrowClosed },
         },
-        es,
-      ),
+        es
+      )
     );
   }, []);
 
@@ -144,7 +152,7 @@ export const AutomatonEditor = () => {
     }
 
     const { type, isAccepting } = JSON.parse(
-      e.dataTransfer.getData('application/reactflow'),
+      e.dataTransfer.getData('application/reactflow')
     );
 
     const position = reactFlowInstance.project({
@@ -173,8 +181,7 @@ export const AutomatonEditor = () => {
         display: 'flex',
         height: '100vh',
         width: '100vw',
-      }}
-    >
+      }}>
       <ReactFlowProvider>
         <div style={{ flex: 1 }} ref={reactFlowWrapper}>
           <ReactFlow
@@ -188,8 +195,7 @@ export const AutomatonEditor = () => {
             onInit={onInit}
             onDrop={onDrop}
             onDragOver={onDragOver}
-            onDragEnter={onDragEnter}
-          >
+            onDragEnter={onDragEnter}>
             <Controls />
           </ReactFlow>
         </div>

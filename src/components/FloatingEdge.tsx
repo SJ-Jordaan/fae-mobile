@@ -3,13 +3,12 @@ import React, { FC, useMemo, CSSProperties } from 'react';
 import {
   EdgeProps,
   useStore,
-  getBezierPath,
   ReactFlowState,
   EdgeText,
   getEdgeCenter,
 } from 'react-flow-renderer';
 
-import { calcSelfLoop, getEdgeParams } from '../helpers/utils';
+import { calcSelfLoop, getBezierPath, getEdgeParams } from '../helpers';
 
 const nodeSelector = (s: ReactFlowState) => s.nodeInternals;
 
@@ -51,11 +50,11 @@ const FloatingEdge: FC<EditableFloatingEdgeProps> = ({
 
   const sourceNode = useMemo(
     () => nodeInternals.get(source),
-    [source, nodeInternals],
+    [source, nodeInternals]
   );
   const targetNode = useMemo(
     () => nodeInternals.get(target),
-    [target, nodeInternals],
+    [target, nodeInternals]
   );
 
   if (!sourceNode || !targetNode) {
@@ -64,10 +63,11 @@ const FloatingEdge: FC<EditableFloatingEdgeProps> = ({
 
   const { sx, sy, tx, ty, sourcePos, targetPos } = getEdgeParams(
     sourceNode,
-    targetNode,
+    targetNode
   );
   // These values are all currently hard-coded for the size 50px
   // A more dynamic approach will be better in future
+  
   const d =
     sourceNode.id !== targetNode.id
       ? getBezierPath({
@@ -82,7 +82,7 @@ const FloatingEdge: FC<EditableFloatingEdgeProps> = ({
           sourceNode.position.x + 50,
           sourceNode.position.y + 25,
           targetNode.position.x + 25,
-          targetNode.position.y,
+          targetNode.position.y
         );
 
   const [edgeCenterX, edgeCenterY] =
@@ -122,8 +122,7 @@ const FloatingEdge: FC<EditableFloatingEdgeProps> = ({
           x={edgeCenterX - 50 / 2}
           y={edgeCenterY - 30 / 2}
           height={30}
-          width={100}
-        >
+          width={100}>
           <TextField
             inputRef={inputRef}
             autoFocus
@@ -132,6 +131,7 @@ const FloatingEdge: FC<EditableFloatingEdgeProps> = ({
             variant='standard'
             defaultValue={label}
             onBlur={handleBlur}
+            style={{backgroundColor: 'transparent'}}
           />
         </foreignObject>
       )}
