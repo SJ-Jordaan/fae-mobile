@@ -1,4 +1,5 @@
 import React from 'react';
+
 import { Handle, Position } from 'react-flow-renderer';
 
 export const InitialState = () => {

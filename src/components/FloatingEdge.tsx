@@ -3,13 +3,11 @@ import React, { FC, useMemo, CSSProperties } from 'react';
 import {
   EdgeProps,
   useStore,
-  getBezierPath,
   ReactFlowState,
-  EdgeText,
   getEdgeCenter,
 } from 'react-flow-renderer';
 
-import { calcSelfLoop, getEdgeParams } from '../helpers/utils';
+import { calcSelfLoop, getBezierPath, getEdgeParams } from '../helpers';
 
 const nodeSelector = (s: ReactFlowState) => s.nodeInternals;
 
@@ -31,7 +29,7 @@ const FloatingEdge: FC<EditableFloatingEdgeProps> = ({
   const [selected, setSelected] = React.useState(false);
   const inputRef = React.useRef<HTMLInputElement | null>(null);
 
-  const handleClick = (event: React.MouseEvent<SVGTextElement>, id: string) => {
+  const handleClick = (event: React.MouseEvent<SVGTextElement>) => {
     event.stopPropagation();
     setSelected(true);
   };
@@ -68,6 +66,7 @@ const FloatingEdge: FC<EditableFloatingEdgeProps> = ({
   );
   // These values are all currently hard-coded for the size 50px
   // A more dynamic approach will be better in future
+
   const d =
     sourceNode.id !== targetNode.id
       ? getBezierPath({
@@ -77,6 +76,7 @@ const FloatingEdge: FC<EditableFloatingEdgeProps> = ({
           targetPosition: targetPos,
           targetX: tx,
           targetY: ty,
+          arch: data.arch,
         })
       : calcSelfLoop(
           sourceNode.position.x + 50,
@@ -110,13 +110,16 @@ const FloatingEdge: FC<EditableFloatingEdgeProps> = ({
         markerEnd={markerEnd}
       />
       {!selected ? (
-        <EdgeText
-          x={edgeCenterX}
-          y={edgeCenterY}
-          label={label}
-          labelStyle={{ fontSize: '14px' }}
-          onClick={(e: React.MouseEvent<SVGTextElement>) => handleClick(e, id)}
-        />
+        <text className='react-flow__edge-textwrapper' onClick={handleClick}>
+          <textPath
+            href={`#${id}`}
+            style={{ fontSize: '16px' }}
+            startOffset='50%'
+            textAnchor='middle'
+          >
+            {label}
+          </textPath>
+        </text>
       ) : (
         <foreignObject
           x={edgeCenterX - 50 / 2}
@@ -132,6 +135,7 @@ const FloatingEdge: FC<EditableFloatingEdgeProps> = ({
             variant='standard'
             defaultValue={label}
             onBlur={handleBlur}
+            style={{ backgroundColor: 'transparent' }}
           />
         </foreignObject>
       )}

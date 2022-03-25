@@ -1,10 +1,9 @@
 import * as React from 'react';
+
 import SpeedDial from '@mui/material/SpeedDial';
 import SpeedDialIcon from '@mui/material/SpeedDialIcon';
 import SpeedDialAction from '@mui/material/SpeedDialAction';
 import { Box } from '@mui/system';
-import { ElementContext } from './AutomatonEditor';
-import { AutomatonSchematic } from '../helpers/automaton';
 import {
   Button,
   CircularProgress,
@@ -20,6 +19,9 @@ import {
 import CheckIcon from '@mui/icons-material/Check';
 import CloseIcon from '@mui/icons-material/Close';
 import { BugReport } from '@mui/icons-material';
+
+import { ElementContext } from './AutomatonEditor';
+import { AutomatonSchematic } from '../helpers';
 import { AutomatonSimulator } from './AutomatonSimulator';
 
 export const BasicSpeedDial = () => {
@@ -66,7 +68,7 @@ export const BasicSpeedDial = () => {
     const automaton = new AutomatonSchematic(nodes, edges);
     const witness = automaton.verifyInputString(
       inputRef.current.value,
-      automaton.getInitialState(),
+      automaton.getInitialState()
     );
 
     if (!witness.isAccepting) {
@@ -99,8 +101,7 @@ export const BasicSpeedDial = () => {
       <SpeedDial
         ariaLabel='Options'
         sx={{ position: 'absolute', bottom: 16, right: 16 }}
-        icon={<SpeedDialIcon />}
-      >
+        icon={<SpeedDialIcon />}>
         <SpeedDialAction
           key={'Test'}
           icon={<BugReport />}
@@ -130,8 +131,7 @@ export const BasicSpeedDial = () => {
                 display: 'flex',
                 justifyContent: 'center',
                 alignItems: 'end',
-              }}
-            >
+              }}>
               {verify.loading ? (
                 <CircularProgress color='success' />
               ) : verify.error ? (
