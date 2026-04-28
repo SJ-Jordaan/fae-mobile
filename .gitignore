@@ -1,23 +1,63 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.dart_tool/
+**/build/
 
-# dependencies
-/node_modules
-/.pnp
-.pnp.js
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.metadata
 
-# testing
-/coverage
+# Android
+**/android/.gradle/
+**/android/captures/
+**/android/gradlew
+**/android/gradlew.bat
+**/android/local.properties
+**/android/**/GeneratedPluginRegistrant.java
+**/android/key.properties
+*.jks
 
-# production
-/build
+# iOS / macOS
+**/ios/Flutter/.last_build_id
+**/ios/Flutter/App.framework
+**/ios/Flutter/Flutter.framework
+**/ios/Flutter/Flutter.podspec
+**/ios/Flutter/Generated.xcconfig
+**/ios/Flutter/ephemeral/
+**/ios/Flutter/app.flx
+**/ios/Flutter/app.zip
+**/ios/Flutter/flutter_assets/
+**/ios/Flutter/flutter_export_environment.sh
+**/ios/ServiceDefinitions.json
+**/ios/Runner/GeneratedPluginRegistrant.*
+**/Pods/
+**/.symlinks/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
 
-# misc
+# OS
 .DS_Store
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+Thumbs.db
 
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Spec Kit / Claude
+# Keep .claude/skills tracked; ignore any local agent state or credentials.
+.claude/local/
+.claude/credentials*
+.claude/auth*
