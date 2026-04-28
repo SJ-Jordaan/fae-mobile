@@ -1,34 +1,30 @@
-# fae-mobile
+# fae stack
 
-Flutter mobile app, developed using [GitHub Spec Kit](https://github.com/github/spec-kit) for spec-driven development.
+A tiny one-tap stacker game. Tap to drop a moving block onto the tower below — the part that overlaps stays, the rest falls off. Miss completely and it's game over. Land three perfects in a row and the block grows back.
 
-## Stack
+It's a static web app (no build step) so it runs anywhere with an HTTP server, and it installs to your phone's home screen as a PWA.
 
-- **Framework**: Flutter (latest stable)
-- **Language**: Dart
-- **Targets**: iOS, Android
-- **Workflow**: Spec Kit + Claude Code
-
-## Getting started
-
-Install Flutter (latest stable) — see https://docs.flutter.dev/get-started/install — then verify:
+## Play locally
 
 ```sh
-flutter --version
-flutter doctor
+python3 -m http.server 8000
 ```
 
-The Flutter project itself has not been scaffolded yet; it will be generated via the spec-driven workflow below.
+Then open `http://localhost:8000` in your browser.
 
-## Spec-driven workflow
+To play on your phone, host the directory somewhere reachable from your phone (your laptop on the same Wi-Fi works: visit `http://<your-laptop-ip>:8000`). For "add to home screen" to work as a real installable app, the page must be served over `https://` or `http://localhost`. The easiest deploy is GitHub Pages (just point Pages at this branch).
 
-This repo is initialized with Spec Kit. From inside Claude Code, run the slash commands in order:
+## Controls
 
-1. `/speckit-constitution` — establish project principles
-2. `/speckit-specify` — write the baseline feature spec
-3. `/speckit-clarify` *(optional)* — de-risk ambiguous areas
-4. `/speckit-plan` — produce the implementation plan
-5. `/speckit-tasks` — break the plan into actionable tasks
-6. `/speckit-implement` — execute the tasks
+- Tap (or click, or press space/enter) to drop the moving block.
+- Tap again on the title or game-over screen to (re)start.
 
-Templates live in `.specify/templates/`, the constitution in `.specify/memory/constitution.md`, and the Claude skills in `.claude/skills/`.
+## Files
+
+- `index.html`, `styles.css`, `game.js` — the game
+- `manifest.webmanifest`, `service-worker.js` — PWA shell (installable, plays offline after first load)
+- `icons/` — app icons
+
+## Spec Kit
+
+The repo was bootstrapped with [GitHub Spec Kit](https://github.com/github/spec-kit). The `.specify/` and `.claude/skills/` directories contain templates and the `/speckit-*` slash commands if future work warrants the spec-driven workflow. They aren't used by the game itself.
