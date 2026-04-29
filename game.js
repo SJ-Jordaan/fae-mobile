@@ -1,4 +1,4 @@
-// Slot — fake-3D tunnel runner. Elemental theme, weighty slam, and Boost Run mini-game.
+// Slot — fake-3D tunnel runner. Elemental theme, weighty slam, varied wall types.
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -24,14 +24,8 @@ const WALL_HALF = 1.7;
 const HOLE_R = 0.7;
 const PLAYER_R = 0.5;
 const MORPH_N = 180;
-
-// --- Boost Run ---
-const BOOST_INTERVAL = 10;
-const BOOST_DURATION = 6.5;
-const PREBOOST_DURATION = 1.2;
-const POSTBOOST_DURATION = 1.0;
-const PICKUP_INTERVAL = 0.45;
-const BOOST_SPEED_MULT = 1.5;
+const CORE_R = 1.55;            // size of a CORE wall's central shape gate
+const SPIN_START_Z = 25;        // SPIN walls only rotate inside this z (visible range)
 
 // --- Elemental palette ---
 const SHAPES = ['triangle', 'square', 'pentagon', 'circle'];
@@ -44,7 +38,6 @@ const ELEMENTS = {
 };
 const SHAPE_FREQ = { triangle: 261.63, square: 329.63, pentagon: 392.0, circle: 523.25 };
 
-// Stone tunnel colors.
 const TUNNEL_NEAR = '#3d2920';
 const TUNNEL_FAR = '#070506';
 const SKY_COLOR = '#0a0608';
@@ -114,13 +107,19 @@ function sideOffset(side) {
   if (side === 'left') return [-ANCHOR, 0];
   return [ANCHOR, 0];
 }
+function sideAngle(side) {
+  if (side === 'top') return -Math.PI / 2;
+  if (side === 'right') return 0;
+  if (side === 'bottom') return Math.PI / 2;
+  return Math.PI;
+}
 function lerp(a, b, t) { return a + (b - a) * t; }
 function clamp(x, lo, hi) { return Math.max(lo, Math.min(hi, x)); }
+function pick(arr) { return arr[(Math.random() * arr.length) | 0]; }
 
 // --- State ---
-let player, walls, pickups, particles, speed, score, combo, gameOver, lastSpawn, animTime;
-let cameraDistance, phase, phaseT, wallsSinceLastBoost, pendingBoost, pickupSpawnTimer;
-let shakeT, slowMoT, flashColor, flashT, comboPopT;
+let player, walls, particles, speed, score, combo, gameOver, lastSpawn, animTime;
+let cameraDistance, shakeT, slowMoT, flashColor, flashT, comboPopT;
 
 function reset() {
   player = {
@@ -129,7 +128,6 @@ function reset() {
     verts: copyVerts(SHAPE_MORPH.triangle),
   };
   walls = [];
-  pickups = [];
   particles = [];
   speed = 10;
   score = 0;
@@ -143,31 +141,69 @@ function reset() {
   flashT = 0;
   comboPopT = 0;
   cameraDistance = 0;
-  phase = 'play';
-  phaseT = 0;
-  wallsSinceLastBoost = 0;
-  pendingBoost = false;
-  pickupSpawnTimer = 0;
 }
 reset();
 
-function spawnWall() {
-  walls.push({
-    absPos: cameraDistance + WALL_Z_START,
-    z: WALL_Z_START,
-    side: SIDES[(Math.random() * 4) | 0],
-    shape: SHAPES[(Math.random() * SHAPES.length) | 0],
-    resolved: false,
-  });
+// --- Wall types ---
+// Distribution depends on score so each type is introduced once the player has
+// enough wall passes to have learned the previous one.
+function chooseWallType() {
+  if (score < 5) return 'static';
+  const r = Math.random();
+  if (score >= 22) {
+    if (r < 0.18) return 'spin';
+    if (r < 0.36) return 'twin';
+    if (r < 0.50) return 'core';
+    return 'static';
+  }
+  if (score >= 14) {
+    if (r < 0.20) return 'spin';
+    if (r < 0.38) return 'twin';
+    return 'static';
+  }
+  if (r < 0.20) return 'spin';
+  return 'static';
 }
-function spawnPickup() {
-  pickups.push({
+
+function spawnWall() {
+  const type = chooseWallType();
+  const base = {
+    type,
     absPos: cameraDistance + WALL_Z_START,
     z: WALL_Z_START,
-    side: SIDES[(Math.random() * 4) | 0],
-    shape: SHAPES[(Math.random() * SHAPES.length) | 0],
     resolved: false,
-  });
+  };
+  if (type === 'static') {
+    walls.push({ ...base, side: pick(SIDES), shape: pick(SHAPES) });
+  } else if (type === 'spin') {
+    // Pre-compute the total angular sweep that will land exactly on the
+    // chosen cardinal at impact. Sweep is 1.2π–2.6π so the rotation always
+    // covers more than a half-turn within the visible spin range.
+    const endSide = pick(SIDES);
+    const direction = Math.random() < 0.5 ? 1 : -1;
+    const totalSweep = (Math.PI * (1.2 + Math.random() * 1.4)) * direction;
+    const endAngleVal = sideAngle(endSide);
+    walls.push({
+      ...base,
+      endSide,
+      shape: pick(SHAPES),
+      totalSweep,
+      startAngle: endAngleVal - totalSweep,
+    });
+  } else if (type === 'twin') {
+    // Always pair opposite sides — adjacent-side holes visually overlap.
+    const axis = Math.random() < 0.5 ? ['top', 'bottom'] : ['left', 'right'];
+    const [s1, s2] = Math.random() < 0.5 ? axis : [axis[1], axis[0]];
+    const sh = pick(SHAPES);
+    const useSameShape = Math.random() < 0.65;
+    const sh2 = useSameShape ? sh : pick(SHAPES.filter((s) => s !== sh));
+    walls.push({
+      ...base,
+      holes: [{ side: s1, shape: sh }, { side: s2, shape: sh2 }],
+    });
+  } else if (type === 'core') {
+    walls.push({ ...base, shape: pick(SHAPES) });
+  }
 }
 
 function emitBurst(x, y, color, count, speed) {
@@ -216,7 +252,7 @@ function applySway(pts, sway) {
   return pts.map((p) => ({ x: p.x + sway[0], y: p.y + sway[1] }));
 }
 
-// --- Tunnel: 4 filled stone walls + transverse joint lines ---
+// --- Tunnel ---
 function drawTunnelFace(face) {
   const zN = PLAYER_Z;
   const zF = WALL_Z_START;
@@ -257,7 +293,6 @@ function drawTunnelFace(face) {
   ctx.closePath();
   ctx.fill();
 }
-
 function drawTunnelJoints() {
   const phaseDist = cameraDistance % 3;
   for (let i = 0; i < 18; i++) {
@@ -270,7 +305,6 @@ function drawTunnelJoints() {
     const br = project(+WALL_HALF, +WALL_HALF, z);
     const bl = project(-WALL_HALF, +WALL_HALF, z);
     [tl, tr, br, bl].forEach((p) => { p.x += sway[0]; p.y += sway[1]; });
-
     ctx.strokeStyle = `rgba(140, 110, 85, ${0.32 * fade})`;
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -300,13 +334,94 @@ function drawStreaks() {
   }
 }
 
+// --- Wall rendering ---
+// Returns the (worldX, worldY) of a hole's anchor for the given wall.
+function holeAnchor(wall, holeData) {
+  if (wall.type === 'static') return sideOffset(wall.side);
+  if (wall.type === 'spin') {
+    const a = spinAngle(wall);
+    return [Math.cos(a) * ANCHOR, Math.sin(a) * ANCHOR];
+  }
+  if (wall.type === 'twin') return sideOffset(holeData.side);
+  return [0, 0];
+}
+
+function spinAngle(wall) {
+  // Hold at startAngle until the wall enters the visible zone, then ease the
+  // rotation into the cardinal. Concentrates the spin where the player can
+  // actually see it.
+  if (wall.z >= SPIN_START_Z) return wall.startAngle;
+  const t = clamp((SPIN_START_Z - wall.z) / (SPIN_START_Z - PLAYER_Z), 0, 1);
+  const eased = 1 - Math.pow(1 - t, 3); // cubic ease-out — decelerates into the lock
+  return wall.startAngle + eased * wall.totalSweep;
+}
+
+function holeShapeProjected(wall, holeData, holeRadius) {
+  const z = wall.z;
+  const sway = trackSway(wall.absPos, z);
+  const [hx, hy] = holeAnchor(wall, holeData);
+  const shape = holeData?.shape || wall.shape;
+  return applySway(
+    SHAPE_RENDER[shape].map(([vx, vy]) =>
+      project(hx + vx * holeRadius, hy + vy * holeRadius, z)
+    ),
+    sway
+  );
+}
+
+function drawHoleOutline(wall, holeData, holeRadius, dashed = false) {
+  const verts = holeShapeProjected(wall, holeData, holeRadius);
+  const shape = holeData?.shape || wall.shape;
+  const elem = ELEMENTS[SHAPE_ELEMENT[shape]];
+  ctx.shadowColor = elem.glow;
+  ctx.shadowBlur = 14;
+  if (dashed) ctx.setLineDash([4, 5]);
+  polyPath(verts);
+  ctx.strokeStyle = elem.accent;
+  ctx.lineWidth = 3;
+  ctx.stroke();
+  if (dashed) ctx.setLineDash([]);
+  ctx.shadowBlur = 0;
+}
+
 function drawWall(wall) {
   const z = wall.z;
   if (z < 0.5) return;
   const fade = Math.min(1, z / WALL_Z_START);
   const sway = trackSway(wall.absPos, z);
-  const elem = ELEMENTS[SHAPE_ELEMENT[wall.shape]];
 
+  if (wall.type === 'core') {
+    // No wall material — just a glowing shape gate at the centre.
+    const elem = ELEMENTS[SHAPE_ELEMENT[wall.shape]];
+    const verts = applySway(
+      SHAPE_RENDER[wall.shape].map(([vx, vy]) => project(vx * CORE_R, vy * CORE_R, z)),
+      sway
+    );
+    // Soft inner fill, low alpha — gives the gate a presence without being a wall.
+    polyPath(verts);
+    ctx.fillStyle = `${elem.primary}1a`;
+    ctx.fill();
+    ctx.shadowColor = elem.glow;
+    ctx.shadowBlur = 24;
+    polyPath(verts);
+    ctx.strokeStyle = elem.accent;
+    ctx.lineWidth = 4;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    // Outer ring of dashed accent so it reads as a "gate," not just a big shape.
+    polyPath(applySway(
+      SHAPE_RENDER[wall.shape].map(([vx, vy]) => project(vx * (CORE_R + 0.12), vy * (CORE_R + 0.12), z)),
+      sway
+    ));
+    ctx.setLineDash([6, 8]);
+    ctx.strokeStyle = `${elem.accent}66`;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.setLineDash([]);
+    return;
+  }
+
+  // For static / spin / twin we draw a wall block with hole(s) cut out.
   const wv = applySway([
     project(-WALL_HALF, -WALL_HALF, z),
     project(WALL_HALF, -WALL_HALF, z),
@@ -314,22 +429,22 @@ function drawWall(wall) {
     project(-WALL_HALF, WALL_HALF, z),
   ], sway);
 
-  const [hx, hy] = sideOffset(wall.side);
-  const holeVerts = applySway(
-    SHAPE_RENDER[wall.shape].map(([vx, vy]) =>
-      project(hx + vx * HOLE_R, hy + vy * HOLE_R, z)
-    ),
-    sway
-  );
+  // Build hole vertex sets.
+  const holes =
+    wall.type === 'twin'
+      ? wall.holes.map((h) => holeShapeProjected(wall, h, HOLE_R))
+      : [holeShapeProjected(wall, null, HOLE_R)];
 
-  // Wall fill with hole cut out (even-odd).
+  // Wall fill with hole(s) cut out (even-odd).
   ctx.beginPath();
   ctx.moveTo(wv[0].x, wv[0].y);
   for (let i = 1; i < 4; i++) ctx.lineTo(wv[i].x, wv[i].y);
   ctx.closePath();
-  ctx.moveTo(holeVerts[0].x, holeVerts[0].y);
-  for (let i = 1; i < holeVerts.length; i++) ctx.lineTo(holeVerts[i].x, holeVerts[i].y);
-  ctx.closePath();
+  for (const verts of holes) {
+    ctx.moveTo(verts[0].x, verts[0].y);
+    for (let i = 1; i < verts.length; i++) ctx.lineTo(verts[i].x, verts[i].y);
+    ctx.closePath();
+  }
   ctx.fillStyle = `rgba(45, 30, 20, ${0.7 + 0.3 * (1 - fade)})`;
   ctx.fill('evenodd');
 
@@ -339,44 +454,37 @@ function drawWall(wall) {
   ctx.lineWidth = 1.5;
   ctx.stroke();
 
-  // Hole outline glows in the element color.
-  ctx.shadowColor = elem.glow;
-  ctx.shadowBlur = 14;
-  polyPath(holeVerts);
-  ctx.strokeStyle = elem.accent;
-  ctx.lineWidth = 3;
-  ctx.stroke();
-  ctx.shadowBlur = 0;
+  // Hole outline(s).
+  if (wall.type === 'twin') {
+    for (const h of wall.holes) drawHoleOutline(wall, h, HOLE_R);
+  } else {
+    drawHoleOutline(wall, null, HOLE_R);
+  }
+
+  // Spinner ghost preview — fades in over the spinning portion.
+  if (wall.type === 'spin' && wall.z < SPIN_START_Z) {
+    const t = clamp((SPIN_START_Z - wall.z) / (SPIN_START_Z - PLAYER_Z), 0, 1);
+    if (t > 0.35) {
+      const ghostAlpha = (t - 0.35) / 0.65;
+      const elem = ELEMENTS[SHAPE_ELEMENT[wall.shape]];
+      const [gx, gy] = sideOffset(wall.endSide);
+      const verts = applySway(
+        SHAPE_RENDER[wall.shape].map(([vx, vy]) =>
+          project(gx + vx * HOLE_R, gy + vy * HOLE_R, z)
+        ),
+        sway
+      );
+      ctx.setLineDash([4, 5]);
+      ctx.strokeStyle = `rgba(255, 220, 150, ${ghostAlpha * 0.55})`;
+      ctx.lineWidth = 1.5;
+      polyPath(verts);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
 }
 
-function drawPickup(p) {
-  const z = p.z;
-  if (z < 0.5) return;
-  const fade = Math.min(1, z / WALL_Z_START);
-  const sway = trackSway(p.absPos, z);
-  const [hx, hy] = sideOffset(p.side);
-  const r = 0.42;
-  const elem = ELEMENTS[SHAPE_ELEMENT[p.shape]];
-  const verts = applySway(
-    SHAPE_RENDER[p.shape].map(([vx, vy]) =>
-      project(hx + vx * r, hy + vy * r, z)
-    ),
-    sway
-  );
-
-  ctx.shadowColor = elem.glow;
-  ctx.shadowBlur = 20;
-  polyPath(verts);
-  ctx.fillStyle = elem.primary;
-  ctx.globalAlpha = 0.55 + 0.4 * (1 - fade);
-  ctx.fill();
-  ctx.globalAlpha = 1;
-  ctx.shadowBlur = 0;
-  ctx.strokeStyle = elem.accent;
-  ctx.lineWidth = 2;
-  ctx.stroke();
-}
-
+// --- Player ---
 function drawPlayer() {
   const verts = player.verts;
   const px = player.x, py = player.y;
@@ -394,7 +502,6 @@ function drawPlayer() {
   const front = verts.map(([vx, vy]) => projVert(vx, vy, 0));
   const back = verts.map(([vx, vy]) => projVert(vx, vy, 0.45));
 
-  // Apply Z-axis lean (banking into slides) around player's screen center.
   const center = project(px, py, PLAYER_Z);
   const lean = clamp(player.vx * 0.05, -0.28, 0.28);
 
@@ -403,7 +510,6 @@ function drawPlayer() {
   ctx.rotate(lean);
   ctx.translate(-center.x, -center.y);
 
-  // Back-face (extruded shadow).
   polyPath(back);
   ctx.shadowColor = elem.glow;
   ctx.shadowBlur = 16;
@@ -411,7 +517,6 @@ function drawPlayer() {
   ctx.fill();
   ctx.shadowBlur = 0;
 
-  // Sparse extrusion edges.
   ctx.strokeStyle = `${elem.accent}55`;
   ctx.lineWidth = 1;
   const stride = Math.max(1, Math.floor(MORPH_N / 24));
@@ -422,7 +527,6 @@ function drawPlayer() {
     ctx.stroke();
   }
 
-  // Front face — element color.
   polyPath(front);
   ctx.fillStyle = elem.primary;
   ctx.fill();
@@ -444,6 +548,7 @@ function drawParticles() {
   ctx.globalAlpha = 1;
 }
 
+// --- HUD ---
 function drawHUD() {
   ctx.fillStyle = '#cfb6a0';
   ctx.font = '18px ui-monospace, monospace';
@@ -467,30 +572,6 @@ function drawHUD() {
   ctx.fillStyle = elem.accent;
   ctx.font = '18px ui-monospace, monospace';
   ctx.fillText(SHAPE_ELEMENT[player.shape].toUpperCase(), W - 16, 26);
-
-  if (phase === 'preboost') {
-    const t = phaseT / PREBOOST_DURATION;
-    ctx.textAlign = 'center';
-    ctx.font = `bold ${36 + t * 14}px ui-monospace, monospace`;
-    ctx.fillStyle = `rgba(255, 220, 150, ${t})`;
-    ctx.fillText('GET READY', W / 2, H / 2 - 10);
-  } else if (phase === 'boost') {
-    ctx.textAlign = 'center';
-    ctx.font = 'bold 22px ui-monospace, monospace';
-    const remaining = Math.max(0, BOOST_DURATION - phaseT);
-    const pulse = 0.7 + 0.3 * Math.sin(animTime * 8);
-    ctx.fillStyle = `rgba(255, 220, 150, ${pulse})`;
-    ctx.fillText('BOOST', W / 2, 30);
-    ctx.font = '12px ui-monospace, monospace';
-    ctx.fillStyle = '#a89070';
-    ctx.fillText(`${remaining.toFixed(1)}s`, W / 2, 50);
-  } else if (phase === 'postboost') {
-    const t = 1 - phaseT / POSTBOOST_DURATION;
-    ctx.textAlign = 'center';
-    ctx.font = 'bold 28px ui-monospace, monospace';
-    ctx.fillStyle = `rgba(255, 220, 150, ${Math.max(0, t) * 0.85})`;
-    ctx.fillText('+ BONUS', W / 2, H / 2);
-  }
 
   if (gameOver) {
     ctx.textAlign = 'center';
@@ -573,16 +654,25 @@ function drawShapeBar() {
   }
 }
 
+// --- Match logic per wall type ---
+function wallMatches(wall) {
+  if (wall.type === 'static') return wall.side === player.side && wall.shape === player.shape;
+  if (wall.type === 'spin') return wall.endSide === player.side && wall.shape === player.shape;
+  if (wall.type === 'twin')
+    return wall.holes.some((h) => h.side === player.side && h.shape === player.shape);
+  if (wall.type === 'core') return wall.shape === player.shape; // side irrelevant
+  return false;
+}
+
 let lastTime = performance.now();
 function loop(now) {
   const rawDt = Math.min(0.05, (now - lastTime) / 1000);
   lastTime = now;
-  // Slow-mo on crash dilates simulation time, not wall-clock time.
   if (slowMoT > 0) slowMoT = Math.max(0, slowMoT - rawDt / 0.5);
   const dt = rawDt * (1 - slowMoT * 0.7);
   animTime += dt;
 
-  // Spring-damper slide for "weighty" feel.
+  // Spring-damper slide.
   const [tx, ty] = sideOffset(player.side);
   const k = 260, c = 2 * Math.sqrt(k) * 0.7;
   player.vx += (-k * (player.x - tx) - c * player.vx) * dt;
@@ -590,7 +680,7 @@ function loop(now) {
   player.x += player.vx * dt;
   player.y += player.vy * dt;
 
-  // Vertex morph (still exponential — 180-vertex spring would be wasteful).
+  // Vertex morph.
   const targetVerts = SHAPE_MORPH[player.shape];
   const km = 1 - Math.exp(-dt / 0.08);
   for (let i = 0; i < MORPH_N; i++) {
@@ -602,7 +692,7 @@ function loop(now) {
   if (flashT > 0) flashT = Math.max(0, flashT - dt / 0.22);
   if (comboPopT > 0) comboPopT = Math.max(0, comboPopT - dt / 0.6);
 
-  // Particle physics.
+  // Particles.
   for (const p of particles) {
     p.x += p.vx * dt;
     p.y += p.vy * dt;
@@ -612,21 +702,15 @@ function loop(now) {
   }
   particles = particles.filter((p) => p.life > 0);
 
-  const effSpeed = phase === 'boost' ? speed * BOOST_SPEED_MULT : speed;
-
   if (!gameOver) {
-    cameraDistance += effSpeed * dt;
-    phaseT += dt;
+    cameraDistance += speed * dt;
+    speed += dt * 0.08;
 
-    if (phase === 'play') speed += dt * 0.08;
-
-    if (phase === 'play' && !pendingBoost) {
-      lastSpawn += dt;
-      const interval = Math.max(0.7, 2.0 - speed * 0.03);
-      if (lastSpawn > interval) {
-        spawnWall();
-        lastSpawn = 0;
-      }
+    lastSpawn += dt;
+    const interval = Math.max(0.7, 2.0 - speed * 0.03);
+    if (lastSpawn > interval) {
+      spawnWall();
+      lastSpawn = 0;
     }
 
     for (const w of walls) {
@@ -635,25 +719,22 @@ function loop(now) {
       if (!w.resolved && prevZ > PLAYER_Z && w.z <= PLAYER_Z) {
         w.resolved = true;
         const playerScreen = project(player.x, player.y, PLAYER_Z);
-        if (w.side === player.side && w.shape === player.shape) {
+        if (wallMatches(w)) {
           combo++;
           score += combo;
-          wallsSinceLastBoost++;
           comboPopT = 1;
           playPass();
-          // Slam: pass-through burst + flash + small kick.
           const elem = ELEMENTS[SHAPE_ELEMENT[player.shape]];
           emitBurst(playerScreen.x, playerScreen.y, elem.primary, 16, 280);
           flashColor = elem.flash;
           flashT = 1;
           shakeT = Math.max(shakeT, 0.35);
           cameraDistance += 1.2;
-          if (wallsSinceLastBoost >= BOOST_INTERVAL) pendingBoost = true;
         } else {
           gameOver = true;
           combo = 0;
-          // Slam: heavy crash burst + flash + shake + slow-mo.
-          const wallElem = ELEMENTS[SHAPE_ELEMENT[w.shape]];
+          const wallShape = w.type === 'twin' ? w.holes[0].shape : w.shape;
+          const wallElem = ELEMENTS[SHAPE_ELEMENT[wallShape]];
           emitBurst(playerScreen.x, playerScreen.y, '#ff5040', 36, 420);
           emitBurst(playerScreen.x, playerScreen.y, wallElem.primary, 18, 320);
           flashColor = 'rgba(255, 70, 50, 1)';
@@ -665,59 +746,11 @@ function loop(now) {
       }
     }
     walls = walls.filter((w) => w.z > PLAYER_Z * 0.95);
-
-    if (phase === 'boost' && phaseT < BOOST_DURATION - 1.5) {
-      pickupSpawnTimer += dt;
-      if (pickupSpawnTimer > PICKUP_INTERVAL) {
-        spawnPickup();
-        pickupSpawnTimer = 0;
-      }
-    }
-    for (const p of pickups) {
-      const prevZ = p.z;
-      p.z = p.absPos - cameraDistance;
-      if (!p.resolved && prevZ > PLAYER_Z && p.z <= PLAYER_Z) {
-        p.resolved = true;
-        if (p.side === player.side && p.shape === player.shape) {
-          score += 2;
-          playPickup();
-          const elem = ELEMENTS[SHAPE_ELEMENT[p.shape]];
-          const playerScreen = project(player.x, player.y, PLAYER_Z);
-          emitBurst(playerScreen.x, playerScreen.y, elem.primary, 10, 220);
-          flashColor = elem.flash;
-          flashT = Math.max(flashT, 0.6);
-        }
-      }
-    }
-    pickups = pickups.filter((p) => p.z > PLAYER_Z * 0.95);
-
-    if (phase === 'play' && pendingBoost && walls.length === 0) {
-      phase = 'preboost'; phaseT = 0; pendingBoost = false;
-      playBoostStart();
-    } else if (phase === 'preboost' && phaseT >= PREBOOST_DURATION) {
-      phase = 'boost'; phaseT = 0;
-      pickupSpawnTimer = PICKUP_INTERVAL;
-    } else if (phase === 'boost' && phaseT >= BOOST_DURATION) {
-      phase = 'postboost'; phaseT = 0;
-      playBoostEnd();
-    } else if (phase === 'postboost' && phaseT >= POSTBOOST_DURATION && pickups.length === 0) {
-      phase = 'play'; phaseT = 0;
-      wallsSinceLastBoost = 0;
-      lastSpawn = 999;
-    }
   }
 
   // --- Render ---
   ctx.fillStyle = SKY_COLOR;
   ctx.fillRect(0, 0, W, H);
-
-  if (phase === 'preboost' || phase === 'boost' || phase === 'postboost') {
-    let intensity = 1;
-    if (phase === 'preboost') intensity = phaseT / PREBOOST_DURATION;
-    else if (phase === 'postboost') intensity = 1 - phaseT / POSTBOOST_DURATION;
-    ctx.fillStyle = `rgba(80, 50, 30, ${0.18 * Math.max(0, intensity)})`;
-    ctx.fillRect(0, 0, W, H);
-  }
 
   ctx.save();
   const roll = currentCameraRoll();
@@ -739,14 +772,11 @@ function loop(now) {
 
   walls.sort((a, b) => b.z - a.z);
   for (const w of walls) drawWall(w);
-  pickups.sort((a, b) => b.z - a.z);
-  for (const p of pickups) drawPickup(p);
   if (!gameOver) drawPlayer();
   drawParticles();
 
   ctx.restore();
 
-  // Slam flash overlay (over scene, under HUD).
   if (flashT > 0 && flashColor) {
     ctx.fillStyle = flashColor;
     ctx.globalAlpha = flashT * 0.35;
@@ -784,27 +814,12 @@ function playSlide() { tone({ freq: 200, type: 'triangle', volume: 0.07, duratio
 function playCycle() { tone({ freq: SHAPE_FREQ[player.shape], type: 'sine', volume: 0.13, duration: 0.16 }); }
 function playPass() {
   tone({ freq: 660, freq2: 990, type: 'sine', volume: 0.18, duration: 0.22 });
-  tone({ freq: 130, freq2: 90, type: 'sine', volume: 0.18, duration: 0.18 });   // bass thump for slam
+  tone({ freq: 130, freq2: 90, type: 'sine', volume: 0.18, duration: 0.18 });
 }
 function playCrash() {
   tone({ freq: 240, freq2: 50, type: 'sawtooth', volume: 0.28, duration: 0.6 });
-  tone({ freq: 70, freq2: 35, type: 'sine', volume: 0.25, duration: 0.7 });     // sub bass
+  tone({ freq: 70, freq2: 35, type: 'sine', volume: 0.25, duration: 0.7 });
   tone({ freq: 110, type: 'square', volume: 0.13, duration: 0.5, delay: 0.05 });
-}
-function playPickup() {
-  tone({ freq: 523, type: 'sine', volume: 0.15, duration: 0.1 });
-  tone({ freq: 660, type: 'sine', volume: 0.13, duration: 0.12, delay: 0.05 });
-  tone({ freq: 880, type: 'sine', volume: 0.11, duration: 0.18, delay: 0.1 });
-}
-function playBoostStart() {
-  [261, 329, 392, 523].forEach((f, i) =>
-    tone({ freq: f, type: 'triangle', volume: 0.16, duration: 0.18, delay: i * 0.07 })
-  );
-}
-function playBoostEnd() {
-  [523, 392, 329, 261].forEach((f, i) =>
-    tone({ freq: f, type: 'triangle', volume: 0.13, duration: 0.16, delay: i * 0.05 })
-  );
 }
 
 // --- Input ---
@@ -858,8 +873,6 @@ canvas.addEventListener('touchstart', (e) => {
   touchState = { startX: t.clientX, startY: t.clientY, barShape, fired: false };
 }, { passive: false });
 
-// Fire the slide as soon as the swipe direction is clear, so the player can
-// follow up with a tap immediately (mobile input was previously gated on lift).
 canvas.addEventListener('touchmove', (e) => {
   if (!touchState || touchState.fired || touchState.barShape) return;
   e.preventDefault();
