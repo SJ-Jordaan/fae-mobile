@@ -1,4 +1,4 @@
-const CACHE = 'fae-tunnel-v1';
+const CACHE = 'fae-tunnel-v2';
 const ASSETS = [
   './',
   './index.html',

@@ -118,9 +118,9 @@ function lerp(a, b, t) { return a + (b - a) * t; }
 function clamp(x, lo, hi) { return Math.max(lo, Math.min(hi, x)); }
 
 // --- State ---
-let player, walls, pickups, particles, speed, score, gameOver, lastSpawn, animTime;
+let player, walls, pickups, particles, speed, score, combo, gameOver, lastSpawn, animTime;
 let cameraDistance, phase, phaseT, wallsSinceLastBoost, pendingBoost, pickupSpawnTimer;
-let shakeT, slowMoT, flashColor, flashT;
+let shakeT, slowMoT, flashColor, flashT, comboPopT;
 
 function reset() {
   player = {
@@ -133,6 +133,7 @@ function reset() {
   particles = [];
   speed = 10;
   score = 0;
+  combo = 0;
   gameOver = false;
   lastSpawn = 999;
   animTime = 0;
@@ -140,6 +141,7 @@ function reset() {
   slowMoT = 0;
   flashColor = null;
   flashT = 0;
+  comboPopT = 0;
   cameraDistance = 0;
   phase = 'play';
   phaseT = 0;
@@ -449,9 +451,21 @@ function drawHUD() {
   ctx.fillText(`SCORE  ${score}`, 16, 26);
   ctx.fillText(`SPEED  ${speed.toFixed(1)}`, 16, 48);
 
+  if (combo > 1) {
+    const pop = 1 + comboPopT * 0.25;
+    ctx.save();
+    ctx.translate(16, 74);
+    ctx.scale(pop, pop);
+    ctx.fillStyle = '#ffb060';
+    ctx.font = 'bold 18px ui-monospace, monospace';
+    ctx.fillText(`COMBO  x${combo}`, 0, 0);
+    ctx.restore();
+  }
+
   const elem = ELEMENTS[SHAPE_ELEMENT[player.shape]];
   ctx.textAlign = 'right';
   ctx.fillStyle = elem.accent;
+  ctx.font = '18px ui-monospace, monospace';
   ctx.fillText(SHAPE_ELEMENT[player.shape].toUpperCase(), W - 16, 26);
 
   if (phase === 'preboost') {
@@ -490,6 +504,75 @@ function drawHUD() {
   }
 }
 
+// --- Shape bar (cycle order + direct selection) ---
+const BAR_BUTTON = 56;
+const BAR_GAP = 12;
+const BAR_BOTTOM_OFFSET = 28;
+function shapeBarLayout() {
+  const total = BAR_BUTTON * SHAPES.length + BAR_GAP * (SHAPES.length - 1);
+  const x0 = (W - total) / 2;
+  const y0 = H - BAR_BOTTOM_OFFSET - BAR_BUTTON;
+  return { x0, y0, total };
+}
+function hitShapeBar(px, py) {
+  const { x0, y0 } = shapeBarLayout();
+  if (py < y0 - 6 || py > y0 + BAR_BUTTON + 6) return null;
+  for (let i = 0; i < SHAPES.length; i++) {
+    const bx = x0 + i * (BAR_BUTTON + BAR_GAP);
+    if (px >= bx - 4 && px <= bx + BAR_BUTTON + 4) return SHAPES[i];
+  }
+  return null;
+}
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+function drawShapeBar() {
+  const { x0, y0 } = shapeBarLayout();
+  for (let i = 0; i < SHAPES.length; i++) {
+    const shape = SHAPES[i];
+    const elem = ELEMENTS[SHAPE_ELEMENT[shape]];
+    const x = x0 + i * (BAR_BUTTON + BAR_GAP);
+    const isCurrent = shape === player.shape;
+    const cx = x + BAR_BUTTON / 2;
+    const cy = y0 + BAR_BUTTON / 2;
+
+    if (isCurrent) {
+      ctx.shadowColor = elem.glow;
+      ctx.shadowBlur = 16;
+    }
+    ctx.fillStyle = isCurrent ? `${elem.primary}33` : 'rgba(20, 14, 10, 0.65)';
+    roundRect(x, y0, BAR_BUTTON, BAR_BUTTON, 12);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = isCurrent ? elem.accent : 'rgba(120, 100, 80, 0.55)';
+    ctx.lineWidth = isCurrent ? 2.5 : 1;
+    roundRect(x, y0, BAR_BUTTON, BAR_BUTTON, 12);
+    ctx.stroke();
+
+    const iconR = 15;
+    const iconVerts = SHAPE_RENDER[shape].map(([vx, vy]) => ({
+      x: cx + vx * iconR,
+      y: cy + vy * iconR,
+    }));
+    polyPath(iconVerts);
+    ctx.fillStyle = isCurrent ? elem.primary : `${elem.primary}99`;
+    ctx.fill();
+    ctx.strokeStyle = elem.accent;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+}
+
 let lastTime = performance.now();
 function loop(now) {
   const rawDt = Math.min(0.05, (now - lastTime) / 1000);
@@ -517,6 +600,7 @@ function loop(now) {
 
   if (shakeT > 0) shakeT = Math.max(0, shakeT - dt / 0.55);
   if (flashT > 0) flashT = Math.max(0, flashT - dt / 0.22);
+  if (comboPopT > 0) comboPopT = Math.max(0, comboPopT - dt / 0.6);
 
   // Particle physics.
   for (const p of particles) {
@@ -534,7 +618,7 @@ function loop(now) {
     cameraDistance += effSpeed * dt;
     phaseT += dt;
 
-    if (phase === 'play') speed += dt * 0.22;
+    if (phase === 'play') speed += dt * 0.08;
 
     if (phase === 'play' && !pendingBoost) {
       lastSpawn += dt;
@@ -552,8 +636,10 @@ function loop(now) {
         w.resolved = true;
         const playerScreen = project(player.x, player.y, PLAYER_Z);
         if (w.side === player.side && w.shape === player.shape) {
-          score++;
+          combo++;
+          score += combo;
           wallsSinceLastBoost++;
+          comboPopT = 1;
           playPass();
           // Slam: pass-through burst + flash + small kick.
           const elem = ELEMENTS[SHAPE_ELEMENT[player.shape]];
@@ -565,6 +651,7 @@ function loop(now) {
           if (wallsSinceLastBoost >= BOOST_INTERVAL) pendingBoost = true;
         } else {
           gameOver = true;
+          combo = 0;
           // Slam: heavy crash burst + flash + shake + slow-mo.
           const wallElem = ELEMENTS[SHAPE_ELEMENT[w.shape]];
           emitBurst(playerScreen.x, playerScreen.y, '#ff5040', 36, 420);
@@ -668,6 +755,7 @@ function loop(now) {
   }
 
   drawHUD();
+  drawShapeBar();
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
@@ -730,6 +818,11 @@ function cycleShape() {
   player.shape = SHAPES[(SHAPES.indexOf(player.shape) + 1) % SHAPES.length];
   playCycle();
 }
+function setShape(shape) {
+  if (gameOver || player.shape === shape) return;
+  player.shape = shape;
+  playCycle();
+}
 
 window.addEventListener('keydown', (e) => {
   ensureAudio();
@@ -740,32 +833,74 @@ window.addEventListener('keydown', (e) => {
     case 'ArrowLeft': case 'a': case 'A': setSide('left'); e.preventDefault(); break;
     case 'ArrowRight': case 'd': case 'D': setSide('right'); e.preventDefault(); break;
     case ' ': cycleShape(); e.preventDefault(); break;
+    case '1': setShape('triangle'); e.preventDefault(); break;
+    case '2': setShape('square'); e.preventDefault(); break;
+    case '3': setShape('pentagon'); e.preventDefault(); break;
+    case '4': setShape('circle'); e.preventDefault(); break;
   }
 });
 
-let touchStart = null;
+function canvasPoint(clientX, clientY) {
+  const rect = canvas.getBoundingClientRect();
+  return { x: clientX - rect.left, y: clientY - rect.top };
+}
+
+const SWIPE_THRESHOLD = 28;
+const TAP_MOVED = 12;
+let touchState = null;
+
 canvas.addEventListener('touchstart', (e) => {
   ensureAudio();
   e.preventDefault();
   const t = e.touches[0];
-  touchStart = { x: t.clientX, y: t.clientY };
-}, { passive: false });
-canvas.addEventListener('touchend', (e) => {
-  e.preventDefault();
-  if (!touchStart) return;
-  const t = e.changedTouches[0];
-  const dx = t.clientX - touchStart.x;
-  const dy = t.clientY - touchStart.y;
-  touchStart = null;
-  if (gameOver) { reset(); return; }
-  const SWIPE = 28;
-  if (Math.abs(dx) < SWIPE && Math.abs(dy) < SWIPE) { cycleShape(); return; }
-  if (Math.abs(dx) > Math.abs(dy)) setSide(dx > 0 ? 'right' : 'left');
-  else setSide(dy > 0 ? 'bottom' : 'top');
+  const pt = canvasPoint(t.clientX, t.clientY);
+  const barShape = hitShapeBar(pt.x, pt.y);
+  touchState = { startX: t.clientX, startY: t.clientY, barShape, fired: false };
 }, { passive: false });
 
-canvas.addEventListener('click', () => {
+// Fire the slide as soon as the swipe direction is clear, so the player can
+// follow up with a tap immediately (mobile input was previously gated on lift).
+canvas.addEventListener('touchmove', (e) => {
+  if (!touchState || touchState.fired || touchState.barShape) return;
+  e.preventDefault();
+  const t = e.touches[0];
+  const dx = t.clientX - touchState.startX;
+  const dy = t.clientY - touchState.startY;
+  if (Math.abs(dx) > SWIPE_THRESHOLD || Math.abs(dy) > SWIPE_THRESHOLD) {
+    if (gameOver) {
+      reset();
+    } else if (Math.abs(dx) > Math.abs(dy)) {
+      setSide(dx > 0 ? 'right' : 'left');
+    } else {
+      setSide(dy > 0 ? 'bottom' : 'top');
+    }
+    touchState.fired = true;
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchend', (e) => {
+  e.preventDefault();
+  if (!touchState) return;
+  const t = e.changedTouches[0];
+  const dx = t.clientX - touchState.startX;
+  const dy = t.clientY - touchState.startY;
+  const moved = Math.hypot(dx, dy) > TAP_MOVED;
+
+  if (gameOver) {
+    if (!touchState.fired) reset();
+  } else if (touchState.barShape && !moved) {
+    setShape(touchState.barShape);
+  } else if (!touchState.fired && !moved) {
+    cycleShape();
+  }
+  touchState = null;
+}, { passive: false });
+
+canvas.addEventListener('click', (e) => {
   ensureAudio();
   if (gameOver) { reset(); return; }
-  cycleShape();
+  const pt = canvasPoint(e.clientX, e.clientY);
+  const barShape = hitShapeBar(pt.x, pt.y);
+  if (barShape) setShape(barShape);
+  else cycleShape();
 });
