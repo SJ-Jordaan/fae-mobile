@@ -1,8 +1,15 @@
-# fae stack
+# fae
 
-A tiny one-tap stacker game. Tap to drop a moving block onto the tower below — the part that overlaps stays, the rest falls off. Miss completely and it's game over. Land three perfects in a row and the block grows back.
+An elemental tunnel runner. A polygon flies forward through a stone corridor; walls approach with shape-cut holes anchored to one of four edges. Slide your polygon to the matching edge and cycle to the matching shape — fire (triangle), earth (square), air (pentagon), water (circle) — to slam through. Miss either side or shape and you crash. Speed ramps over time, and every ten walls a Boost Run mini-game pauses the obstacles to shower you with elemental pickups for bonus score.
 
-It's a static web app (no build step) so it runs anywhere with an HTTP server, and it installs to your phone's home screen as a PWA.
+The whole game ships in three files. Code-native art (Canvas polygons, no raster sprites) and procedural Web Audio (no recorded samples).
+
+Inspired by — but not derived from — Color Switch, Ketchapp's Fit, Helix Jump, and toddler shape-sorter toys. The novel piece is the two-axis decision per obstacle: slide *and* morph against the same oncoming wall.
+
+## Controls
+
+- **Desktop** — arrow keys or WASD to slide; space to cycle shape.
+- **Mobile** — swipe to slide; tap to cycle shape.
 
 ## Play locally
 
@@ -10,21 +17,11 @@ It's a static web app (no build step) so it runs anywhere with an HTTP server, a
 python3 -m http.server 8000
 ```
 
-Then open `http://localhost:8000` in your browser.
-
-To play on your phone, host the directory somewhere reachable from your phone (your laptop on the same Wi-Fi works: visit `http://<your-laptop-ip>:8000`). For "add to home screen" to work as a real installable app, the page must be served over `https://` or `http://localhost`. The easiest deploy is GitHub Pages (just point Pages at this branch).
-
-## Controls
-
-- Tap (or click, or press space/enter) to drop the moving block.
-- Tap again on the title or game-over screen to (re)start.
+Then open `http://localhost:8000`.
 
 ## Files
 
 - `index.html`, `styles.css`, `game.js` — the game
 - `manifest.webmanifest`, `service-worker.js` — PWA shell (installable, plays offline after first load)
 - `icons/` — app icons
-
-## Spec Kit
-
-The repo was bootstrapped with [GitHub Spec Kit](https://github.com/github/spec-kit). The `.specify/` and `.claude/skills/` directories contain templates and the `/speckit-*` slash commands if future work warrants the spec-driven workflow. They aren't used by the game itself.
+- `.github/workflows/pages.yml` — auto-deploys `master` to GitHub Pages

@@ -2,13 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>fae stack</title>
+  <title>fae</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
-  <meta name="theme-color" content="#0c0e18" />
+  <meta name="theme-color" content="#0a0608" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="fae stack" />
+  <meta name="apple-mobile-web-app-title" content="fae" />
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icons/favicon-32.png" sizes="32x32" />
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
@@ -16,23 +16,7 @@
 </head>
 <body>
   <canvas id="game"></canvas>
-
-  <header class="hud">
-    <div class="score" id="score">0</div>
-    <div class="best">best <span id="best">0</span></div>
-  </header>
-
-  <div class="combo" id="combo" aria-hidden="true"></div>
-
-  <div class="overlay show" id="overlay">
-    <div class="overlay-card">
-      <h1 id="overlay-title">stack</h1>
-      <p id="overlay-sub">tap to start</p>
-    </div>
-  </div>
-
-  <div class="hint" id="hint">tap anywhere to drop</div>
-
+  <p id="hint">Arrows / WASD slide · Space cycles shape · (mobile: swipe / tap)</p>
   <script src="game.js" defer></script>
   <script>
     if ('serviceWorker' in navigator) {
