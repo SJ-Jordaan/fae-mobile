@@ -93,6 +93,18 @@ const SHAPE_MORPH = {
   pentagon: resamplePerimeter(regularNgon(5), MORPH_N),
   circle: smoothCircle(MORPH_N),
 };
+
+// Wrecking-ball star: 8-point spiked shape used while the powerup is active.
+function makeStar(points = 8, inner = 0.55) {
+  const arr = [];
+  for (let i = 0; i < points * 2; i++) {
+    const a = -Math.PI / 2 + (i / (points * 2)) * Math.PI * 2;
+    const r = i % 2 === 0 ? 1 : inner;
+    arr.push([Math.cos(a) * r, Math.sin(a) * r]);
+  }
+  return arr;
+}
+const WRECKING_VERTS = resamplePerimeter(makeStar(8, 0.5), MORPH_N);
 const SHAPE_RENDER = {
   triangle: regularNgon(3),
   square: regularNgon(4),
@@ -119,7 +131,19 @@ function pick(arr) { return arr[(Math.random() * arr.length) | 0]; }
 
 // --- State ---
 let player, walls, particles, speed, score, combo, gameOver, lastSpawn, animTime;
-let cameraDistance, shakeT, slowMoT, flashColor, flashT, comboPopT;
+let cameraDistance, shakeT, crashSlowT, flashColor, flashT, comboPopT;
+let lives, invulnT, wreckingT, powerupSlowT, powerupNoticeT, powerupNoticeType;
+// Music state lives here so reset() can reach it before the audio section
+// is declared; the audio section assigns the rest.
+let musicNextBeat = 0;
+let beatIndex = 0;
+let musicEnabled = true;
+// Persisted across runs.
+let bestCombo = 0;
+try { bestCombo = parseInt(localStorage.getItem('fae:bestCombo') || '0', 10) || 0; } catch (e) {}
+function saveBest() {
+  try { localStorage.setItem('fae:bestCombo', String(bestCombo)); } catch (e) {}
+}
 
 function reset() {
   player = {
@@ -132,15 +156,23 @@ function reset() {
   speed = 10;
   score = 0;
   combo = 0;
+  lives = 3;
+  invulnT = 0;
+  wreckingT = 0;
+  powerupSlowT = 0;
+  powerupNoticeT = 0;
+  powerupNoticeType = null;
   gameOver = false;
   lastSpawn = 999;
   animTime = 0;
   shakeT = 0;
-  slowMoT = 0;
+  crashSlowT = 0;
   flashColor = null;
   flashT = 0;
   comboPopT = 0;
   cameraDistance = 0;
+  musicNextBeat = 0;
+  beatIndex = 0;
 }
 reset();
 
@@ -149,6 +181,9 @@ reset();
 // enough wall passes to have learned the previous one.
 function chooseWallType() {
   if (score < 5) return 'static';
+  // Locked-pickup walls: gated to avoid stealing every fifth wall and dulling
+  // the core loop. Roughly 1 in 9.
+  if (Math.random() < 0.11) return 'locked';
   const r = Math.random();
   if (score >= 22) {
     if (r < 0.18) return 'spin';
@@ -163,6 +198,22 @@ function chooseWallType() {
   }
   if (r < 0.20) return 'spin';
   return 'static';
+}
+
+// Powerup definitions — tuned for rarity (rare = high threshold).
+const POWERUPS = {
+  bonus:     { weight: 50, threshold: 3,  color: '#ffd060' },
+  wrecking:  { weight: 25, threshold: 5,  color: '#ff7040' },
+  slowmo:    { weight: 18, threshold: 7,  color: '#7ab8e0' },
+  extralife: { weight: 7,  threshold: 12, color: '#ff5060' },
+};
+function pickPowerup() {
+  const total = Object.values(POWERUPS).reduce((s, p) => s + p.weight, 0);
+  let r = Math.random() * total;
+  for (const [type, def] of Object.entries(POWERUPS)) {
+    if ((r -= def.weight) < 0) return type;
+  }
+  return 'bonus';
 }
 
 function spawnWall() {
@@ -203,7 +254,30 @@ function spawnWall() {
     });
   } else if (type === 'core') {
     walls.push({ ...base, shape: pick(SHAPES) });
+  } else if (type === 'locked') {
+    const powerup = pickPowerup();
+    walls.push({
+      ...base,
+      shape: pick(SHAPES),
+      powerup,
+      threshold: POWERUPS[powerup].threshold,
+    });
   }
+}
+
+function applyPowerup(type) {
+  powerupNoticeT = 1;
+  powerupNoticeType = type;
+  if (type === 'bonus') {
+    score += 20;
+  } else if (type === 'wrecking') {
+    wreckingT = 4;
+  } else if (type === 'slowmo') {
+    powerupSlowT = 3;
+  } else if (type === 'extralife') {
+    lives = Math.min(3, lives + 1);
+  }
+  playPowerup();
 }
 
 function emitBurst(x, y, color, count, speed) {
@@ -390,6 +464,60 @@ function drawWall(wall) {
   const fade = Math.min(1, z / WALL_Z_START);
   const sway = trackSway(wall.absPos, z);
 
+  if (wall.type === 'locked') {
+    // Locked walls: shape gate plus a powerup icon hovering above. Visually
+    // distinct so the player reads it as a "claim me" wall, not a free pass.
+    const elem = ELEMENTS[SHAPE_ELEMENT[wall.shape]];
+    const pdef = POWERUPS[wall.powerup];
+    const verts = applySway(
+      SHAPE_RENDER[wall.shape].map(([vx, vy]) => project(vx * 1.3, vy * 1.3, z)),
+      sway
+    );
+    polyPath(verts);
+    ctx.fillStyle = `${pdef.color}1c`;
+    ctx.fill();
+    ctx.shadowColor = pdef.color;
+    ctx.shadowBlur = 18;
+    polyPath(verts);
+    ctx.strokeStyle = elem.accent;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Powerup icon framed inside the gate. Threshold label sits just below.
+    const iconCenter = applySway([project(0, -0.18, z)], sway)[0];
+    const labelCenter = applySway([project(0, 0.45, z)], sway)[0];
+    const scale = clamp(PLAYER_Z / z, 0.18, 1);
+    const iconR = Math.max(16, 70 * scale);
+    drawPowerupIcon(wall.powerup, iconCenter.x, iconCenter.y, iconR);
+
+    // Threshold badge.
+    const reached = combo >= wall.threshold;
+    ctx.font = `bold ${Math.max(16, 32 * scale)}px ui-monospace, monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = reached ? '#fff' : pdef.color;
+    ctx.shadowColor = reached ? 'rgba(255,255,255,0.8)' : pdef.color;
+    ctx.shadowBlur = Math.max(4, 12 * scale);
+    ctx.fillText(`x${wall.threshold}`, labelCenter.x, labelCenter.y);
+    ctx.shadowBlur = 0;
+    ctx.textBaseline = 'alphabetic';
+
+    if (!reached) {
+      // Small lock arc: tells the player they need more combo to claim it.
+      const lr = Math.max(6, 14 * scale);
+      const lx = labelCenter.x + Math.max(36, 70 * scale);
+      const ly = labelCenter.y;
+      ctx.strokeStyle = '#bbb';
+      ctx.lineWidth = Math.max(1, 2 * scale);
+      ctx.beginPath();
+      ctx.arc(lx, ly - lr * 0.25, lr * 0.55, Math.PI, 0);
+      ctx.stroke();
+      ctx.strokeRect(lx - lr * 0.6, ly - lr * 0.25, lr * 1.2, lr * 0.85);
+    }
+    return;
+  }
+
   if (wall.type === 'core') {
     // No wall material — just a glowing shape gate at the centre.
     const elem = ELEMENTS[SHAPE_ELEMENT[wall.shape]];
@@ -484,12 +612,94 @@ function drawWall(wall) {
   }
 }
 
+// --- Powerup icons (shared by HUD and locked walls) ---
+function drawPowerupIcon(type, cx, cy, r) {
+  ctx.save();
+  if (type === 'bonus') {
+    // 5-point star
+    ctx.shadowColor = '#ffd060';
+    ctx.shadowBlur = r * 0.5;
+    ctx.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const a = -Math.PI / 2 + (i / 10) * Math.PI * 2;
+      const rr = i % 2 === 0 ? r : r * 0.45;
+      const x = cx + Math.cos(a) * rr;
+      const y = cy + Math.sin(a) * rr;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fillStyle = '#ffd060';
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = '#fff5c0';
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+  } else if (type === 'wrecking') {
+    // Spiked sun
+    ctx.shadowColor = '#ff7040';
+    ctx.shadowBlur = r * 0.7;
+    ctx.fillStyle = '#ff7040';
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 0.55, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = '#ffaa70';
+    ctx.lineWidth = Math.max(1, r * 0.08);
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(a) * r * 0.55, cy + Math.sin(a) * r * 0.55);
+      ctx.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+      ctx.stroke();
+    }
+  } else if (type === 'slowmo') {
+    // Hourglass
+    ctx.shadowColor = '#7ab8e0';
+    ctx.shadowBlur = r * 0.5;
+    ctx.fillStyle = '#7ab8e0';
+    ctx.strokeStyle = '#bce0f0';
+    ctx.lineWidth = 1.2;
+    const w = r * 0.7, h = r * 0.85;
+    ctx.beginPath();
+    ctx.moveTo(cx - w, cy - h); ctx.lineTo(cx + w, cy - h);
+    ctx.lineTo(cx, cy); ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(cx - w, cy + h); ctx.lineTo(cx + w, cy + h);
+    ctx.lineTo(cx, cy); ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.shadowBlur = 0;
+  } else if (type === 'extralife') {
+    // Heart
+    ctx.shadowColor = '#ff5060';
+    ctx.shadowBlur = r * 0.6;
+    ctx.fillStyle = '#ff5060';
+    ctx.strokeStyle = '#ffa0aa';
+    ctx.lineWidth = 1.2;
+    const s = r;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy + s * 0.5);
+    ctx.bezierCurveTo(cx + s, cy + s * 0.05, cx + s * 0.7, cy - s * 0.7, cx, cy - s * 0.18);
+    ctx.bezierCurveTo(cx - s * 0.7, cy - s * 0.7, cx - s, cy + s * 0.05, cx, cy + s * 0.5);
+    ctx.closePath();
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 // --- Player ---
 function drawPlayer() {
   const verts = player.verts;
   const px = player.x, py = player.y;
+  const wrecking = wreckingT > 0;
   const elem = ELEMENTS[SHAPE_ELEMENT[player.shape]];
-  const tilt = Math.sin(animTime * 1.6) * 0.22;
+  // Override palette during wrecking ball — bright fire regardless of shape.
+  const fillCol = wrecking ? '#ff7030' : elem.primary;
+  const strokeCol = wrecking ? '#ffd070' : elem.accent;
+  const glowCol = wrecking ? 'rgba(255,140,60,0.95)' : elem.glow;
+  const tilt = Math.sin(animTime * 1.6) * 0.22 + (wrecking ? animTime * 6 : 0);
   const cosT = Math.cos(tilt);
   const sinT = Math.sin(tilt);
 
@@ -506,18 +716,22 @@ function drawPlayer() {
   const lean = clamp(player.vx * 0.05, -0.28, 0.28);
 
   ctx.save();
+  // Hit-flash: draw the player with reduced opacity during invulnerability.
+  if (invulnT > 0) {
+    ctx.globalAlpha = 0.35 + 0.5 * Math.abs(Math.sin(animTime * 30));
+  }
   ctx.translate(center.x, center.y);
   ctx.rotate(lean);
   ctx.translate(-center.x, -center.y);
 
   polyPath(back);
-  ctx.shadowColor = elem.glow;
-  ctx.shadowBlur = 16;
+  ctx.shadowColor = glowCol;
+  ctx.shadowBlur = wrecking ? 28 : 16;
   ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
   ctx.fill();
   ctx.shadowBlur = 0;
 
-  ctx.strokeStyle = `${elem.accent}55`;
+  ctx.strokeStyle = `${strokeCol}55`;
   ctx.lineWidth = 1;
   const stride = Math.max(1, Math.floor(MORPH_N / 24));
   for (let i = 0; i < MORPH_N; i += stride) {
@@ -528,13 +742,18 @@ function drawPlayer() {
   }
 
   polyPath(front);
-  ctx.fillStyle = elem.primary;
+  ctx.fillStyle = fillCol;
   ctx.fill();
-  ctx.strokeStyle = elem.accent;
+  ctx.strokeStyle = strokeCol;
   ctx.lineWidth = 2.2;
   ctx.stroke();
 
   ctx.restore();
+
+  // Wrecking-ball trailing particles, emitted from the live screen position.
+  if (wrecking && Math.random() < 0.7) {
+    emitBurst(center.x, center.y, '#ff8030', 1, 80);
+  }
 }
 
 function drawParticles() {
@@ -549,39 +768,129 @@ function drawParticles() {
 }
 
 // --- HUD ---
-function drawHUD() {
-  ctx.fillStyle = '#cfb6a0';
-  ctx.font = '18px ui-monospace, monospace';
-  ctx.textAlign = 'left';
-  ctx.fillText(`SCORE  ${score}`, 16, 26);
-  ctx.fillText(`SPEED  ${speed.toFixed(1)}`, 16, 48);
+function drawHeart(cx, cy, r, alive) {
+  ctx.save();
+  if (alive) {
+    ctx.shadowColor = 'rgba(255, 80, 100, 0.7)';
+    ctx.shadowBlur = r * 0.8;
+    ctx.fillStyle = '#ff5060';
+    ctx.strokeStyle = '#ffa8b0';
+  } else {
+    ctx.fillStyle = 'rgba(0,0,0,0)';
+    ctx.strokeStyle = 'rgba(120, 70, 80, 0.55)';
+  }
+  ctx.lineWidth = 1.6;
+  const s = r;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy + s * 0.5);
+  ctx.bezierCurveTo(cx + s * 1.05, cy + s * 0.05, cx + s * 0.7, cy - s * 0.7, cx, cy - s * 0.18);
+  ctx.bezierCurveTo(cx - s * 0.7, cy - s * 0.7, cx - s * 1.05, cy + s * 0.05, cx, cy + s * 0.5);
+  ctx.closePath();
+  if (alive) ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.stroke();
+  ctx.restore();
+}
 
+function drawHUD() {
+  // Lives — top-left row of hearts. 3 slots, filled = alive, outlined = lost.
+  const heartR = 11;
+  const heartGap = 32;
+  for (let i = 0; i < 3; i++) {
+    drawHeart(22 + i * heartGap, 26, heartR, i < lives);
+  }
+
+  // Score — large, top-right.
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = '#f5e6d0';
+  ctx.font = 'bold 38px ui-monospace, monospace';
+  ctx.fillText(String(score), W - 18, 40);
+
+  // Best combo — small, under score.
+  ctx.fillStyle = '#a89070';
+  ctx.font = '11px ui-monospace, monospace';
+  ctx.fillText(`BEST x${bestCombo}`, W - 18, 56);
+
+  // Live combo pip — only shows when meaningful.
   if (combo > 1) {
-    const pop = 1 + comboPopT * 0.25;
+    const pop = 1 + comboPopT * 0.35;
+    const size = 16 + Math.min(combo * 0.6, 10);
     ctx.save();
-    ctx.translate(16, 74);
+    ctx.translate(W - 18, 80);
     ctx.scale(pop, pop);
-    ctx.fillStyle = '#ffb060';
-    ctx.font = 'bold 18px ui-monospace, monospace';
-    ctx.fillText(`COMBO  x${combo}`, 0, 0);
+    ctx.shadowColor = 'rgba(255, 200, 100, 0.7)';
+    ctx.shadowBlur = 10;
+    ctx.fillStyle = '#ffc070';
+    ctx.font = `bold ${size}px ui-monospace, monospace`;
+    ctx.textAlign = 'right';
+    ctx.fillText(`x${combo}`, 0, 0);
     ctx.restore();
   }
 
-  const elem = ELEMENTS[SHAPE_ELEMENT[player.shape]];
-  ctx.textAlign = 'right';
-  ctx.fillStyle = elem.accent;
-  ctx.font = '18px ui-monospace, monospace';
-  ctx.fillText(SHAPE_ELEMENT[player.shape].toUpperCase(), W - 16, 26);
+  // Active powerup pills — top-centre row.
+  const pills = [];
+  if (wreckingT > 0) pills.push({ type: 'wrecking', label: `x${wreckingT}` });
+  if (powerupSlowT > 0) pills.push({ type: 'slowmo', label: `${powerupSlowT.toFixed(1)}s` });
+  if (pills.length) {
+    const pillW = 78;
+    const pillH = 36;
+    const totalW = pills.length * pillW + (pills.length - 1) * 10;
+    let cx = W / 2 - totalW / 2;
+    for (const p of pills) {
+      ctx.save();
+      ctx.fillStyle = 'rgba(20, 14, 10, 0.7)';
+      ctx.strokeStyle = POWERUPS[p.type].color;
+      ctx.lineWidth = 1.5;
+      roundRect(cx, 12, pillW, pillH, 10);
+      ctx.fill();
+      ctx.stroke();
+      drawPowerupIcon(p.type, cx + 16, 30, 11);
+      ctx.fillStyle = '#f0e0c8';
+      ctx.font = 'bold 14px ui-monospace, monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText(p.label, cx + 32, 35);
+      ctx.restore();
+      cx += pillW + 10;
+    }
+  }
+
+  // Powerup grab notice — large flash when one is collected.
+  if (powerupNoticeT > 0 && powerupNoticeType) {
+    const t = powerupNoticeT;
+    ctx.save();
+    ctx.globalAlpha = clamp(t * 1.3, 0, 1);
+    const cx = W / 2;
+    const cy = H / 2 - 60;
+    drawPowerupIcon(powerupNoticeType, cx, cy, 28 + (1 - t) * 18);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 22px ui-monospace, monospace';
+    ctx.textAlign = 'center';
+    const labels = {
+      bonus: '+20 SCORE',
+      wrecking: 'WRECKING BALL',
+      slowmo: 'SLOW-MO',
+      extralife: '+1 LIFE',
+    };
+    ctx.fillText(labels[powerupNoticeType] || '', cx, cy + 50);
+    ctx.restore();
+  }
 
   if (gameOver) {
+    // Translucent panel keeps the over-game readable above the world.
+    ctx.fillStyle = 'rgba(10, 6, 8, 0.68)';
+    ctx.fillRect(0, 0, W, H);
     ctx.textAlign = 'center';
-    ctx.font = 'bold 38px ui-monospace, monospace';
-    ctx.fillStyle = '#ff7050';
-    ctx.fillText('CRASH', W / 2, H / 2 - 10);
-    ctx.font = '14px ui-monospace, monospace';
+    ctx.font = 'bold 44px ui-monospace, monospace';
+    ctx.fillStyle = '#ff8060';
+    ctx.fillText('GAME OVER', W / 2, H / 2 - 30);
+    ctx.font = 'bold 28px ui-monospace, monospace';
+    ctx.fillStyle = '#f5e6d0';
+    ctx.fillText(String(score), W / 2, H / 2 + 6);
+    ctx.font = '12px ui-monospace, monospace';
     ctx.fillStyle = '#a89070';
-    ctx.fillText(`final score ${score}`, W / 2, H / 2 + 16);
-    ctx.fillText('press any key / tap to restart', W / 2, H / 2 + 36);
+    ctx.fillText(`BEST COMBO x${bestCombo}`, W / 2, H / 2 + 28);
+    ctx.fillText('press any key / tap to restart', W / 2, H / 2 + 56);
   }
 }
 
@@ -660,7 +969,8 @@ function wallMatches(wall) {
   if (wall.type === 'spin') return wall.endSide === player.side && wall.shape === player.shape;
   if (wall.type === 'twin')
     return wall.holes.some((h) => h.side === player.side && h.shape === player.shape);
-  if (wall.type === 'core') return wall.shape === player.shape; // side irrelevant
+  if (wall.type === 'core') return wall.shape === player.shape;        // side irrelevant
+  if (wall.type === 'locked') return wall.shape === player.shape;      // shape-only, like core
   return false;
 }
 
@@ -668,8 +978,11 @@ let lastTime = performance.now();
 function loop(now) {
   const rawDt = Math.min(0.05, (now - lastTime) / 1000);
   lastTime = now;
-  if (slowMoT > 0) slowMoT = Math.max(0, slowMoT - rawDt / 0.5);
-  const dt = rawDt * (1 - slowMoT * 0.7);
+  if (crashSlowT > 0) crashSlowT = Math.max(0, crashSlowT - rawDt / 0.5);
+  if (powerupSlowT > 0) powerupSlowT = Math.max(0, powerupSlowT - rawDt);
+  if (invulnT > 0) invulnT = Math.max(0, invulnT - rawDt);
+  if (powerupNoticeT > 0) powerupNoticeT = Math.max(0, powerupNoticeT - rawDt / 1.6);
+  const dt = rawDt * (1 - crashSlowT * 0.7) * (powerupSlowT > 0 ? 0.5 : 1);
   animTime += dt;
 
   // Spring-damper slide.
@@ -680,8 +993,8 @@ function loop(now) {
   player.x += player.vx * dt;
   player.y += player.vy * dt;
 
-  // Vertex morph.
-  const targetVerts = SHAPE_MORPH[player.shape];
+  // Vertex morph (or star morph during wrecking ball).
+  const targetVerts = wreckingT > 0 ? WRECKING_VERTS : SHAPE_MORPH[player.shape];
   const km = 1 - Math.exp(-dt / 0.08);
   for (let i = 0; i < MORPH_N; i++) {
     player.verts[i][0] += (targetVerts[i][0] - player.verts[i][0]) * km;
@@ -704,7 +1017,10 @@ function loop(now) {
 
   if (!gameOver) {
     cameraDistance += speed * dt;
-    speed += dt * 0.08;
+    // Base ramp stays at 0.08/sec for the first ~5 walls (preserves the start
+    // feel) and then accelerates with score, so the longer you survive the
+    // faster speed climbs.
+    speed += dt * (0.08 + Math.max(0, score - 5) * 0.005);
 
     lastSpawn += dt;
     const interval = Math.max(0.7, 2.0 - speed * 0.03);
@@ -716,32 +1032,70 @@ function loop(now) {
     for (const w of walls) {
       const prevZ = w.z;
       w.z = w.absPos - cameraDistance;
-      if (!w.resolved && prevZ > PLAYER_Z && w.z <= PLAYER_Z) {
-        w.resolved = true;
-        const playerScreen = project(player.x, player.y, PLAYER_Z);
-        if (wallMatches(w)) {
-          combo++;
-          score += combo;
-          comboPopT = 1;
-          playPass();
-          const elem = ELEMENTS[SHAPE_ELEMENT[player.shape]];
-          emitBurst(playerScreen.x, playerScreen.y, elem.primary, 16, 280);
-          flashColor = elem.flash;
-          flashT = 1;
-          shakeT = Math.max(shakeT, 0.35);
-          cameraDistance += 1.2;
-        } else {
+      if (w.resolved || prevZ <= PLAYER_Z || w.z > PLAYER_Z) continue;
+      w.resolved = true;
+      const playerScreen = project(player.x, player.y, PLAYER_Z);
+
+      // Wrecking Ball: smash everything. Capped combo gain so it doesn't farm.
+      if (wreckingT > 0) {
+        score += 5;
+        combo++;
+        if (combo > bestCombo) { bestCombo = combo; saveBest(); }
+        wreckingT--;
+        playPass();
+        emitBurst(playerScreen.x, playerScreen.y, '#ff7040', 22, 380);
+        flashColor = 'rgba(255,120,60,1)';
+        flashT = 1;
+        shakeT = Math.max(shakeT, 0.4);
+        cameraDistance += 1.4;
+        continue;
+      }
+
+      // Invulnerability after a hit: phase through, no scoring or damage.
+      if (invulnT > 0) continue;
+
+      const matched = wallMatches(w);
+      if (matched) {
+        combo++;
+        score += combo;
+        if (combo > bestCombo) { bestCombo = combo; saveBest(); }
+        comboPopT = 1;
+        playPass();
+        const elem = ELEMENTS[SHAPE_ELEMENT[player.shape]];
+        emitBurst(playerScreen.x, playerScreen.y, elem.primary, 16, 280);
+        flashColor = elem.flash;
+        flashT = 1;
+        shakeT = Math.max(shakeT, 0.35);
+        cameraDistance += 1.2;
+
+        // Locked wall: collect powerup if combo cleared the threshold.
+        if (w.type === 'locked') {
+          if (combo >= w.threshold) {
+            applyPowerup(w.powerup);
+          } else {
+            // Combo too low — lock shatters, no powerup.
+            emitBurst(playerScreen.x, playerScreen.y, '#888', 10, 200);
+            playLockBreak();
+          }
+        }
+      } else {
+        // Wrong wall: lose a life.
+        lives--;
+        combo = 0;
+        invulnT = 1.0;
+        const wallShape = w.type === 'twin' ? w.holes[0].shape : w.shape;
+        const wallElem = ELEMENTS[SHAPE_ELEMENT[wallShape]];
+        emitBurst(playerScreen.x, playerScreen.y, '#ff5040', 36, 420);
+        emitBurst(playerScreen.x, playerScreen.y, wallElem.primary, 18, 320);
+        flashColor = 'rgba(255, 70, 50, 1)';
+        flashT = 1;
+        shakeT = 1;
+        if (lives <= 0) {
           gameOver = true;
-          combo = 0;
-          const wallShape = w.type === 'twin' ? w.holes[0].shape : w.shape;
-          const wallElem = ELEMENTS[SHAPE_ELEMENT[wallShape]];
-          emitBurst(playerScreen.x, playerScreen.y, '#ff5040', 36, 420);
-          emitBurst(playerScreen.x, playerScreen.y, wallElem.primary, 18, 320);
-          flashColor = 'rgba(255, 70, 50, 1)';
-          flashT = 1;
-          shakeT = 1;
-          slowMoT = 1;
+          crashSlowT = 1;
           playCrash();
+        } else {
+          playHit();
         }
       }
     }
@@ -786,15 +1140,43 @@ function loop(now) {
 
   drawHUD();
   drawShapeBar();
+
+  scheduleMusic();
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
 
 // --- Audio ---
 let audio = null;
+let masterGain = null, musicGain = null, sfxGain = null;
+let noiseBuffer = null;
+
 function ensureAudio() {
-  if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)();
+  if (!audio) {
+    audio = new (window.AudioContext || window.webkitAudioContext)();
+    masterGain = audio.createGain();
+    musicGain = audio.createGain();
+    sfxGain = audio.createGain();
+    masterGain.gain.value = 0.85;
+    musicGain.gain.value = musicEnabled ? 0.55 : 0;
+    sfxGain.gain.value = 1.0;
+    musicGain.connect(masterGain);
+    sfxGain.connect(masterGain);
+    masterGain.connect(audio.destination);
+  }
+  if (audio.state === 'suspended') audio.resume();
 }
+
+function getNoiseBuffer() {
+  if (!noiseBuffer && audio) {
+    const len = audio.sampleRate;
+    noiseBuffer = audio.createBuffer(1, len, audio.sampleRate);
+    const data = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+  }
+  return noiseBuffer;
+}
+
 function tone({ freq, type = 'sine', volume = 0.2, duration = 0.2, freq2 = null, delay = 0 }) {
   ensureAudio();
   const t = audio.currentTime + delay;
@@ -806,9 +1188,208 @@ function tone({ freq, type = 'sine', volume = 0.2, duration = 0.2, freq2 = null,
   gain.gain.setValueAtTime(0, t);
   gain.gain.linearRampToValueAtTime(volume, t + 0.01);
   gain.gain.exponentialRampToValueAtTime(0.001, t + duration);
-  osc.connect(gain).connect(audio.destination);
+  osc.connect(gain).connect(sfxGain);
   osc.start(t);
   osc.stop(t + duration);
+}
+
+// --- Music synth (driving 4-bar progression that layers in with speed/combo) ---
+// 4-bar progression in A minor: i — VII — VI — V (Am G F E). The major V at
+// the end (E with a G#) creates Phrygian-dominant tension that pulls back
+// to the i, giving the loop forward momentum instead of just sitting on root.
+const PROGRESSION = [
+  { bass: 55.00, root: 220.00, third: 261.63, fifth: 329.63, color: 'minor' }, // Am: A C E
+  { bass: 49.00, root: 196.00, third: 246.94, fifth: 293.66, color: 'major' }, // G:  G B D
+  { bass: 43.65, root: 174.61, third: 220.00, fifth: 261.63, color: 'major' }, // F:  F A C
+  { bass: 41.20, root: 164.81, third: 207.65, fifth: 246.94, color: 'major' }, // E:  E G# B
+];
+const PROG_BARS = PROGRESSION.length;
+const BEATS_PER_BAR = 4;
+
+function bpm() {
+  return 100 + clamp((speed - 10) * 2.5, 0, 55);
+}
+
+function scheduleKick(t, vol = 0.5) {
+  const osc = audio.createOscillator();
+  const gain = audio.createGain();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(140, t);
+  osc.frequency.exponentialRampToValueAtTime(40, t + 0.06);
+  gain.gain.setValueAtTime(0, t);
+  gain.gain.linearRampToValueAtTime(vol, t + 0.002);
+  gain.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+  osc.connect(gain).connect(musicGain);
+  osc.start(t);
+  osc.stop(t + 0.2);
+}
+
+function playBassNote(t, freq, duration, vol) {
+  const osc = audio.createOscillator();
+  const filter = audio.createBiquadFilter();
+  const gain = audio.createGain();
+  osc.type = 'sawtooth';
+  osc.frequency.setValueAtTime(freq, t);
+  filter.type = 'lowpass';
+  filter.frequency.value = freq < 70 ? 720 : 1500;
+  filter.Q.value = 2.5;
+  gain.gain.setValueAtTime(0, t);
+  gain.gain.linearRampToValueAtTime(vol, t + 0.005);
+  gain.gain.exponentialRampToValueAtTime(0.001, t + duration);
+  osc.connect(filter).connect(gain).connect(musicGain);
+  osc.start(t);
+  osc.stop(t + duration + 0.02);
+}
+function scheduleBass(t, beatInBar, chord) {
+  const beatLen = 60 / bpm();
+  // Root on the beat...
+  playBassNote(t, chord.bass, beatLen * 0.7, 0.18);
+  // ...with an octave-up bump on the "and" for groove. Skip beat-4-and so
+  // the bar breathes before the next chord.
+  if (beatInBar !== 3) {
+    playBassNote(t + beatLen * 0.5, chord.bass * 2, beatLen * 0.4, 0.10);
+  }
+}
+
+function scheduleHat(t, vol = 0.08, len = 0.04) {
+  const buf = getNoiseBuffer();
+  if (!buf) return;
+  const src = audio.createBufferSource();
+  src.buffer = buf;
+  const filter = audio.createBiquadFilter();
+  const gain = audio.createGain();
+  filter.type = 'highpass';
+  filter.frequency.value = 7000;
+  gain.gain.setValueAtTime(vol, t);
+  gain.gain.exponentialRampToValueAtTime(0.001, t + len);
+  src.connect(filter).connect(gain).connect(musicGain);
+  src.start(t);
+  src.stop(t + len + 0.01);
+}
+function scheduleOpenHat(t) {
+  const buf = getNoiseBuffer();
+  if (!buf) return;
+  const src = audio.createBufferSource();
+  src.buffer = buf;
+  const filter = audio.createBiquadFilter();
+  const gain = audio.createGain();
+  filter.type = 'highpass';
+  filter.frequency.value = 6500;
+  gain.gain.setValueAtTime(0.06, t);
+  gain.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
+  src.connect(filter).connect(gain).connect(musicGain);
+  src.start(t);
+  src.stop(t + 0.3);
+}
+function scheduleSnare(t) {
+  const buf = getNoiseBuffer();
+  if (!buf) return;
+  const src = audio.createBufferSource();
+  src.buffer = buf;
+  const filter = audio.createBiquadFilter();
+  const gain = audio.createGain();
+  filter.type = 'bandpass';
+  filter.frequency.value = 1700;
+  filter.Q.value = 0.9;
+  gain.gain.setValueAtTime(0.18, t);
+  gain.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
+  src.connect(filter).connect(gain).connect(musicGain);
+  src.start(t);
+  src.stop(t + 0.15);
+  const osc = audio.createOscillator();
+  const oGain = audio.createGain();
+  osc.type = 'triangle';
+  osc.frequency.setValueAtTime(180, t);
+  osc.frequency.exponentialRampToValueAtTime(110, t + 0.05);
+  oGain.gain.setValueAtTime(0.12, t);
+  oGain.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+  osc.connect(oGain).connect(musicGain);
+  osc.start(t);
+  osc.stop(t + 0.1);
+}
+
+// Lead: chord arpeggio per bar (root → third → fifth → third). Phrases the
+// melody to the harmony so each bar sounds different.
+function scheduleLead(t, beatInBar, chord) {
+  const arp = [chord.root, chord.third, chord.fifth, chord.third];
+  const freq = arp[beatInBar];
+  const beatLen = 60 / bpm();
+  const osc = audio.createOscillator();
+  const gain = audio.createGain();
+  osc.type = 'square';
+  osc.frequency.setValueAtTime(freq, t);
+  gain.gain.setValueAtTime(0, t);
+  gain.gain.linearRampToValueAtTime(0.055, t + 0.01);
+  gain.gain.exponentialRampToValueAtTime(0.001, t + beatLen * 0.6);
+  osc.connect(gain).connect(musicGain);
+  osc.start(t);
+  osc.stop(t + beatLen);
+}
+
+// Sustained pad chord, one bar long. Two-voice (root + fifth) for harmonic body.
+function schedulePad(t, chord, duration) {
+  const voices = [chord.root, chord.fifth];
+  for (const freq of voices) {
+    const osc = audio.createOscillator();
+    const filter = audio.createBiquadFilter();
+    const gain = audio.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(freq, t);
+    filter.type = 'lowpass';
+    filter.frequency.value = 1100;
+    gain.gain.setValueAtTime(0, t);
+    gain.gain.linearRampToValueAtTime(0.025, t + 0.25);
+    gain.gain.setValueAtTime(0.025, t + duration - 0.25);
+    gain.gain.linearRampToValueAtTime(0.001, t + duration);
+    osc.connect(filter).connect(gain).connect(musicGain);
+    osc.start(t);
+    osc.stop(t + duration + 0.05);
+  }
+}
+
+function scheduleMusic() {
+  if (!audio || gameOver) return;
+  if (musicNextBeat < audio.currentTime + 0.02) {
+    musicNextBeat = audio.currentTime + 0.05;
+  }
+  const beatLen = 60 / bpm();
+  while (musicNextBeat < audio.currentTime + 0.12) {
+    const t = musicNextBeat;
+    const beatInBar = beatIndex % BEATS_PER_BAR;
+    const bar = Math.floor(beatIndex / BEATS_PER_BAR) % PROG_BARS;
+    const chord = PROGRESSION[bar];
+
+    scheduleKick(t);
+    scheduleBass(t, beatInBar, chord);
+    scheduleHat(t + beatLen / 2);
+
+    // Pad starts on each downbeat and holds the bar.
+    if (beatInBar === 0) schedulePad(t, chord, beatLen * BEATS_PER_BAR);
+
+    if (speed >= 13) {
+      scheduleHat(t + beatLen / 4, 0.05);
+      scheduleHat(t + beatLen * 3 / 4, 0.05);
+    }
+    if (speed >= 18 && (beatInBar === 1 || beatInBar === 3)) {
+      scheduleSnare(t);
+    }
+
+    // Ghost kick on the "and" of beat 4 every other bar — adds a syncopated
+    // lift into the next bar without breaking the four-on-the-floor pulse.
+    if (beatInBar === 3 && bar % 2 === 0 && speed >= 12) {
+      scheduleKick(t + beatLen * 0.5, 0.22);
+    }
+
+    // Open hat on the last "and" of the progression — signals the loop turn.
+    if (bar === PROG_BARS - 1 && beatInBar === 3) {
+      scheduleOpenHat(t + beatLen * 0.5);
+    }
+
+    if (combo >= 8) scheduleLead(t, beatInBar, chord);
+
+    musicNextBeat += beatLen;
+    beatIndex++;
+  }
 }
 function playSlide() { tone({ freq: 200, type: 'triangle', volume: 0.07, duration: 0.08 }); }
 function playCycle() { tone({ freq: SHAPE_FREQ[player.shape], type: 'sine', volume: 0.13, duration: 0.16 }); }
@@ -820,6 +1401,21 @@ function playCrash() {
   tone({ freq: 240, freq2: 50, type: 'sawtooth', volume: 0.28, duration: 0.6 });
   tone({ freq: 70, freq2: 35, type: 'sine', volume: 0.25, duration: 0.7 });
   tone({ freq: 110, type: 'square', volume: 0.13, duration: 0.5, delay: 0.05 });
+}
+function playHit() {
+  // Lighter hit (life lost but still alive): short dissonant stab.
+  tone({ freq: 320, freq2: 160, type: 'sawtooth', volume: 0.2, duration: 0.18 });
+  tone({ freq: 120, freq2: 80, type: 'sine', volume: 0.18, duration: 0.2 });
+}
+function playPowerup() {
+  // Bright triumphant arpeggio.
+  [392, 523, 660, 880].forEach((f, i) =>
+    tone({ freq: f, type: 'triangle', volume: 0.18, duration: 0.22, delay: i * 0.06 })
+  );
+}
+function playLockBreak() {
+  // Brief scrape — the lock shatters because you didn't earn it.
+  tone({ freq: 280, freq2: 120, type: 'sawtooth', volume: 0.13, duration: 0.18 });
 }
 
 // --- Input ---
@@ -852,6 +1448,11 @@ window.addEventListener('keydown', (e) => {
     case '2': setShape('square'); e.preventDefault(); break;
     case '3': setShape('pentagon'); e.preventDefault(); break;
     case '4': setShape('circle'); e.preventDefault(); break;
+    case 'm': case 'M':
+      musicEnabled = !musicEnabled;
+      if (musicGain) musicGain.gain.value = musicEnabled ? 0.55 : 0;
+      e.preventDefault();
+      break;
   }
 });
 
